@@ -1,9 +1,9 @@
 use ghtray_core::config::AppConfig;
 use ghtray_core::github::{self, GhStatus};
 use ghtray_core::logging;
-use ghtray_core::models::{self, Bucket, CategorizedPr, Transition};
+use ghtray_core::models::{self, CategorizedPr, Transition};
 use ghtray_core::state;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{
     AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
@@ -79,6 +79,13 @@ struct BucketEntry {
     id: String,
     label: String,
     visible: bool,
+    badge: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct GhStatusInfo {
+    ok: bool,
+    message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,6 +97,7 @@ struct SettingsData {
     autostart: bool,
     buckets: Vec<BucketEntry>,
     orgs: Vec<OrgEntry>,
+    gh_status: GhStatusInfo,
 }
 
 #[tauri::command]
@@ -125,16 +133,33 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
         })
         .collect();
 
-    let buckets: Vec<BucketEntry> = Bucket::display_order()
+    let buckets: Vec<BucketEntry> = config
+        .ordered_buckets()
         .iter()
         .map(|b| BucketEntry {
             id: b.id().to_string(),
             label: b.label().to_string(),
             visible: config.is_bucket_visible(b.id()),
+            badge: config.counts_for_badge(b.id()),
         })
         .collect();
 
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
+
+    let gh_status = match github::check_gh_status() {
+        GhStatus::Ok => GhStatusInfo {
+            ok: true,
+            message: "Connected".to_string(),
+        },
+        GhStatus::NotInstalled => GhStatusInfo {
+            ok: false,
+            message: "gh CLI not installed. Install from https://cli.github.com".to_string(),
+        },
+        GhStatus::NotAuthenticated(msg) => GhStatusInfo {
+            ok: false,
+            message: format!("Not authenticated. Run `gh auth login`. {msg}"),
+        },
+    };
 
     SettingsData {
         poll_interval_secs: config.poll_interval_secs,
@@ -144,37 +169,67 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
         autostart,
         buckets,
         orgs,
+        gh_status,
     }
 }
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
-fn save_settings(
-    app: AppHandle,
-    state: tauri::State<'_, GhTrayState>,
+fn check_gh(state: tauri::State<'_, GhTrayState>) -> GhStatusInfo {
+    match github::check_gh_status() {
+        GhStatus::Ok => {
+            *state.last_error.lock().unwrap() = None;
+            GhStatusInfo {
+                ok: true,
+                message: "Connected".to_string(),
+            }
+        }
+        GhStatus::NotInstalled => GhStatusInfo {
+            ok: false,
+            message: "gh CLI not installed. Install from https://cli.github.com".to_string(),
+        },
+        GhStatus::NotAuthenticated(msg) => GhStatusInfo {
+            ok: false,
+            message: format!("Not authenticated. Run `gh auth login`. {msg}"),
+        },
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SaveSettingsPayload {
     poll_interval_secs: u64,
     merged_window_days: i64,
     blocked_repos: Vec<String>,
     notifications_enabled: bool,
     notification_sound: bool,
     hidden_buckets: Vec<String>,
+    badge_buckets: Vec<String>,
+    bucket_order: Vec<String>,
     autostart: bool,
+}
+
+#[tauri::command]
+fn save_settings(
+    app: AppHandle,
+    state: tauri::State<'_, GhTrayState>,
+    payload: SaveSettingsPayload,
 ) -> Result<(), String> {
     let mut config = state.config.lock().unwrap();
-    config.poll_interval_secs = poll_interval_secs.max(30);
-    config.merged_window_days = merged_window_days.max(1);
-    config.blocked_repos = blocked_repos.into_iter().collect();
-    config.notifications_enabled = notifications_enabled;
-    config.notification_sound = notification_sound;
-    config.hidden_buckets = hidden_buckets.into_iter().collect();
+    config.poll_interval_secs = payload.poll_interval_secs.max(30);
+    config.merged_window_days = payload.merged_window_days.max(1);
+    config.blocked_repos = payload.blocked_repos.into_iter().collect();
+    config.notifications_enabled = payload.notifications_enabled;
+    config.notification_sound = payload.notification_sound;
+    config.hidden_buckets = payload.hidden_buckets.into_iter().collect();
+    config.badge_buckets = payload.badge_buckets.into_iter().collect();
+    config.bucket_order = payload.bucket_order;
     config.save().map_err(|e| e.to_string())?;
 
     // Update autostart
     let mgr = app.autolaunch();
     let currently_enabled = mgr.is_enabled().unwrap_or(false);
-    if autostart && !currently_enabled {
+    if payload.autostart && !currently_enabled {
         let _ = mgr.enable();
-    } else if !autostart && currently_enabled {
+    } else if !payload.autostart && currently_enabled {
         let _ = mgr.disable();
     }
 
@@ -217,7 +272,8 @@ fn rebuild_tray_menu(
 
     let mut has_buckets = false;
 
-    for bucket in Bucket::display_order() {
+    for bucket in config.ordered_buckets() {
+        let bucket = &bucket;
         if !config.is_bucket_visible(bucket.id()) {
             continue;
         }
@@ -345,15 +401,27 @@ fn send_notifications(app: &AppHandle, transitions: &[Transition], config: &AppC
 
     for transition in transitions {
         if let Some((title, body)) = transition.notification_text() {
-            let mut builder = app.notification().builder().title(title).body(&body);
+            let builder = app.notification().builder().title(title).body(&body);
 
             if config.notification_sound {
-                builder = builder.sound("default");
+                // Play macOS system sound via NSSound (notification plugin's sound
+                // support is unreliable). We fire the notification silently and play
+                // the sound ourselves.
+                play_system_sound();
             }
 
             let _ = builder.show();
         }
     }
+}
+
+/// Play the macOS default notification sound (Glass) via system command.
+fn play_system_sound() {
+    std::thread::spawn(|| {
+        let _ = std::process::Command::new("afplay")
+            .arg("/System/Library/Sounds/Glass.aiff")
+            .spawn();
+    });
 }
 
 // ── Loading indicator ────────────────────────────────────────────────────────
@@ -445,18 +513,23 @@ fn do_fetch(app: &AppHandle) {
 fn update_tray(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig) {
     let count = prs
         .iter()
-        .filter(|pr| matches!(pr.bucket, Bucket::NeedsYourReview | Bucket::ReturnedToYou))
+        .filter(|pr| config.counts_for_badge(pr.bucket.id()))
         .count();
 
     if let Some(tray) = app.tray_by_id("main") {
-        let has_error = app
-            .state::<GhTrayState>()
-            .last_error
-            .lock()
-            .unwrap()
-            .is_some();
-        let title = if has_error {
-            "⚠".to_string()
+        let state = app.state::<GhTrayState>();
+        let error_ref = state.last_error.lock().unwrap();
+        let has_error = error_ref.is_some();
+        let is_gh_error = error_ref
+            .as_ref()
+            .map(|e| e.contains("not installed") || e.contains("not authenticated"))
+            .unwrap_or(false);
+        drop(error_ref);
+
+        let title = if is_gh_error {
+            "\u{2717}".to_string() // ✗
+        } else if has_error {
+            "\u{26A0}".to_string() // ⚠
         } else if count > 0 {
             format!("{count}")
         } else {
@@ -464,7 +537,9 @@ fn update_tray(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig) {
         };
         let _ = tray.set_title(Some(&title));
 
-        let tooltip = if has_error {
+        let tooltip = if is_gh_error {
+            "GH Tray — gh CLI error (check settings)".to_string()
+        } else if has_error {
             "GH Tray — Error (check settings)".to_string()
         } else if count > 0 {
             format!("GH Tray — {count} action item(s)")
@@ -510,7 +585,7 @@ fn open_settings(app: &AppHandle) {
 
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
         .title("GH Tray Settings")
-        .inner_size(420.0, 640.0)
+        .inner_size(440.0, 720.0)
         .resizable(false)
         .build();
 }
@@ -585,7 +660,11 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(GhTrayState::new())
-        .invoke_handler(tauri::generate_handler![get_settings, save_settings])
+        .invoke_handler(tauri::generate_handler![
+            get_settings,
+            save_settings,
+            check_gh
+        ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             {

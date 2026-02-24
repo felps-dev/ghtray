@@ -146,6 +146,19 @@ impl Bucket {
             Bucket::WaitingForAuthor,
         ]
     }
+
+    pub fn from_id(id: &str) -> Option<Bucket> {
+        match id {
+            "needs_your_review" => Some(Bucket::NeedsYourReview),
+            "waiting_for_reviewers" => Some(Bucket::WaitingForReviewers),
+            "returned_to_you" => Some(Bucket::ReturnedToYou),
+            "approved" => Some(Bucket::Approved),
+            "drafts" => Some(Bucket::Drafts),
+            "recently_merged" => Some(Bucket::RecentlyMerged),
+            "waiting_for_author" => Some(Bucket::WaitingForAuthor),
+            _ => None,
+        }
+    }
 }
 
 // ── Categorized PR (for display and caching) ────────────────────────────────

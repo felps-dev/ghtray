@@ -15,6 +15,8 @@
       --text-dim: #8892a4;
       --accent: #00d2ff;
       --green: #6bcb77;
+      --red: #e74c3c;
+      --yellow: #f39c12;
     }
 
     body {
@@ -62,6 +64,38 @@
 
     .field-hint { font-size: 11px; color: var(--text-dim); }
 
+    /* Status banner */
+    .status-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 12px;
+    }
+
+    .status-banner.ok {
+      background: rgba(107, 203, 119, 0.1);
+      border: 1px solid rgba(107, 203, 119, 0.3);
+      color: var(--green);
+    }
+
+    .status-banner.error {
+      background: rgba(231, 76, 60, 0.1);
+      border: 1px solid rgba(231, 76, 60, 0.3);
+      color: var(--red);
+    }
+
+    .status-banner .status-icon { font-size: 16px; }
+    .status-banner .status-text { flex: 1; }
+    .status-banner button {
+      padding: 4px 12px;
+      font-size: 11px;
+      border-radius: 4px;
+    }
+
+    /* Repo tree */
     .repo-tree {
       max-height: 300px;
       overflow-y: auto;
@@ -128,6 +162,7 @@
       color: var(--text-dim);
     }
 
+    /* Actions */
     .actions {
       display: flex;
       gap: 10px;
@@ -178,6 +213,7 @@
       accent-color: var(--accent);
     }
 
+    /* Bucket list with drag & drop */
     .bucket-list {
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -189,16 +225,55 @@
       display: flex;
       align-items: center;
       padding: 6px 12px;
-      cursor: pointer;
-      transition: background 0.1s;
+      cursor: grab;
+      transition: background 0.15s, opacity 0.15s;
       font-size: 13px;
+      user-select: none;
     }
 
     .bucket-row:hover { background: rgba(255,255,255,0.03); }
 
+    .bucket-row.dragging {
+      opacity: 0.4;
+    }
+
+    .bucket-row.drag-over {
+      border-top: 2px solid var(--accent);
+    }
+
     .bucket-row input[type="checkbox"] {
-      margin-right: 10px;
       accent-color: var(--accent);
+    }
+
+    .drag-handle {
+      color: var(--text-dim);
+      margin-right: 8px;
+      font-size: 14px;
+      cursor: grab;
+      line-height: 1;
+    }
+
+    .bucket-label { flex: 1; }
+
+    .badge-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-left: 8px;
+      cursor: pointer;
+    }
+
+    .badge-toggle input[type="checkbox"] {
+      accent-color: var(--yellow);
+    }
+
+    .bucket-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 8px;
     }
 
     .empty-msg {
@@ -211,6 +286,8 @@
 </head>
 <body>
   <h1>GH Tray Settings</h1>
+
+  <div id="gh-status"></div>
 
   <div class="section">
     <div class="section-title">General</div>
@@ -253,7 +330,10 @@
   </div>
 
   <div class="section">
-    <div class="section-title">Visible Sections</div>
+    <div class="section-title">Sections</div>
+    <div class="field-hint" style="margin-bottom: 8px;">
+      Drag to reorder. Toggle visibility and badge count per section.
+    </div>
     <div id="bucket-list" class="bucket-list"></div>
   </div>
 
@@ -276,6 +356,7 @@
 
     let orgs = [];
     let buckets = [];
+    let ghStatus = { ok: true, message: '' };
 
     async function load() {
       const data = await invoke('get_settings');
@@ -286,26 +367,112 @@
       document.getElementById('notification-sound').checked = data.notification_sound;
       orgs = data.orgs;
       buckets = data.buckets;
+      ghStatus = data.gh_status;
       render();
     }
 
     function render() {
+      renderGhStatus();
       renderBuckets();
       renderRepos();
     }
+
+    // ── gh CLI status ──────────────────────────────────────────────────
+
+    function renderGhStatus() {
+      const el = document.getElementById('gh-status');
+      if (ghStatus.ok) {
+        el.innerHTML = `
+          <div class="status-banner ok">
+            <span class="status-icon">&#10003;</span>
+            <span class="status-text">gh CLI: ${esc(ghStatus.message)}</span>
+          </div>`;
+      } else {
+        el.innerHTML = `
+          <div class="status-banner error">
+            <span class="status-icon">&#10007;</span>
+            <span class="status-text">gh CLI: ${esc(ghStatus.message)}</span>
+            <button onclick="retryGh()">Try Again</button>
+          </div>`;
+      }
+    }
+
+    async function retryGh() {
+      const btn = document.querySelector('#gh-status button');
+      if (btn) { btn.textContent = 'Checking...'; btn.disabled = true; }
+      ghStatus = await invoke('check_gh');
+      renderGhStatus();
+    }
+
+    // ── Bucket list with drag & drop ────────────────────────────────────
+
+    let dragIdx = null;
 
     function renderBuckets() {
       const el = document.getElementById('bucket-list');
       let html = '';
       for (let i = 0; i < buckets.length; i++) {
         const b = buckets[i];
-        html += `<label class="bucket-row">`;
-        html += `<input type="checkbox" ${b.visible ? 'checked' : ''} onchange="buckets[${i}].visible = this.checked" />`;
-        html += `<span>${esc(b.label)}</span>`;
+        html += `<div class="bucket-row" draggable="true" data-idx="${i}"
+                      ondragstart="onDragStart(event, ${i})"
+                      ondragover="onDragOver(event, ${i})"
+                      ondragenter="onDragEnter(event)"
+                      ondragleave="onDragLeave(event)"
+                      ondragend="onDragEnd()"
+                      ondrop="onDrop(event, ${i})">`;
+        html += `<span class="drag-handle">&#8942;&#8942;</span>`;
+        html += `<div class="bucket-controls">`;
+        html += `<input type="checkbox" title="Show in menu" ${b.visible ? 'checked' : ''} onclick="event.stopPropagation(); buckets[${i}].visible = this.checked" />`;
+        html += `</div>`;
+        html += `<span class="bucket-label">${esc(b.label)}</span>`;
+        html += `<label class="badge-toggle" onclick="event.stopPropagation()">`;
+        html += `<input type="checkbox" title="Count in badge" ${b.badge ? 'checked' : ''} onchange="buckets[${i}].badge = this.checked" />`;
+        html += `<span>#</span>`;
         html += `</label>`;
+        html += `</div>`;
       }
       el.innerHTML = html;
     }
+
+    function onDragStart(e, idx) {
+      dragIdx = idx;
+      e.target.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    }
+
+    function onDragOver(e, idx) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    }
+
+    function onDragEnter(e) {
+      const row = e.target.closest('.bucket-row');
+      if (row) row.classList.add('drag-over');
+    }
+
+    function onDragLeave(e) {
+      const row = e.target.closest('.bucket-row');
+      if (row) row.classList.remove('drag-over');
+    }
+
+    function onDrop(e, targetIdx) {
+      e.preventDefault();
+      if (dragIdx === null || dragIdx === targetIdx) return;
+
+      const item = buckets.splice(dragIdx, 1)[0];
+      buckets.splice(targetIdx, 0, item);
+      dragIdx = null;
+      renderBuckets();
+    }
+
+    function onDragEnd() {
+      dragIdx = null;
+      document.querySelectorAll('.bucket-row').forEach(r => {
+        r.classList.remove('dragging', 'drag-over');
+      });
+    }
+
+    // ── Repo tree ──────────────────────────────────────────────────────
 
     function renderRepos() {
       const tree = document.getElementById('repo-tree');
@@ -367,8 +534,9 @@
       }
     }
 
+    // ── Save / Cancel ──────────────────────────────────────────────────
+
     async function save() {
-      // Collect blocked repos (unchecked ones)
       const blocked = [];
       for (const org of orgs) {
         for (const repo of org.repos) {
@@ -379,15 +547,21 @@
       }
 
       const hiddenBuckets = buckets.filter(b => !b.visible).map(b => b.id);
+      const badgeBuckets = buckets.filter(b => b.badge).map(b => b.id);
+      const bucketOrder = buckets.map(b => b.id);
 
       await invoke('save_settings', {
-        pollIntervalSecs: parseInt(document.getElementById('poll-interval').value) || 120,
-        mergedWindowDays: parseInt(document.getElementById('merged-window').value) || 7,
-        blockedRepos: blocked,
-        notificationsEnabled: document.getElementById('notifications-enabled').checked,
-        notificationSound: document.getElementById('notification-sound').checked,
-        hiddenBuckets: hiddenBuckets,
-        autostart: document.getElementById('autostart').checked,
+        payload: {
+          poll_interval_secs: parseInt(document.getElementById('poll-interval').value) || 120,
+          merged_window_days: parseInt(document.getElementById('merged-window').value) || 7,
+          blocked_repos: blocked,
+          notifications_enabled: document.getElementById('notifications-enabled').checked,
+          notification_sound: document.getElementById('notification-sound').checked,
+          hidden_buckets: hiddenBuckets,
+          badge_buckets: badgeBuckets,
+          bucket_order: bucketOrder,
+          autostart: document.getElementById('autostart').checked,
+        }
       });
 
       const msg = document.getElementById('saved-msg');
