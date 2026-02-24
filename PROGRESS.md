@@ -1,10 +1,10 @@
 # GH Tray — Progress
 
 ## Current Phase
-Phase 3 — COMPLETE
+v0.2.1 — Released
 
 ## Next Step
-Ready for V1 release / future improvements (webview popup for rich UI, etc.)
+Open for next iteration — see Known Issues / Future Work below
 
 ## Phase 1: Data Exploration — COMPLETE
 - [x] All tasks complete. See `docs/phase1-data-exploration.md`
@@ -62,9 +62,20 @@ Ready for V1 release / future improvements (webview popup for rich UI, etc.)
 - "Refresh Now" runs on background thread (doesn't block menu)
 - Settings window enlarged for new sections (640px height)
 
-## Known Issues / Open Questions
+## v0.2.1 — Improvements
+- [x] Configurable badge count — users select which sections count towards tray badge
+- [x] Drag & drop section reorder in settings (persisted to `bucket_order`)
+- [x] gh CLI status shown in settings with "Try Again" button
+- [x] Tray icon shows ✗ when gh is missing/unauthenticated
+- [x] Notification sound fix — uses macOS `afplay` instead of unreliable plugin
+- [x] Refactored save_settings to payload struct
+- [x] Public repo, LICENSE (MIT), README, CI/CD workflows
+- [x] GitHub Actions: ci.yml (fmt/clippy/check/test) + release.yml (macOS binaries)
+
+## Known Issues / Future Work
 - Bot accounts (cursor, graphite-app) appear in `latestReviews` — need filtering strategy
 - Very old PRs (years) clutter results — consider staleness cutoff
 - `mergeable` field unreliable on first query (GitHub computes lazily)
 - Pagination beyond 50 PRs per bucket not yet implemented
 - Native menu lacks rich formatting (colors, custom layout) — webview popup is the path forward
+- macOS-only — Linux/Windows support would need CI matrix expansion
