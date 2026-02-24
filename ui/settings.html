@@ -241,6 +241,12 @@
       border-top: 2px solid var(--accent);
     }
 
+    /* During drag, make children invisible to pointer/drag events
+       so dragover/drop always fire on the .bucket-row itself */
+    .bucket-list.is-dragging .bucket-row > * {
+      pointer-events: none;
+    }
+
     .bucket-row input[type="checkbox"] {
       accent-color: var(--accent);
     }
@@ -416,8 +422,6 @@
         html += `<div class="bucket-row" draggable="true" data-idx="${i}"
                       ondragstart="onDragStart(event, ${i})"
                       ondragover="onDragOver(event, ${i})"
-                      ondragenter="onDragEnter(event)"
-                      ondragleave="onDragLeave(event)"
                       ondragend="onDragEnd()"
                       ondrop="onDrop(event, ${i})">`;
         html += `<span class="drag-handle">&#8942;&#8942;</span>`;
@@ -437,22 +441,19 @@
     function onDragStart(e, idx) {
       dragIdx = idx;
       e.target.classList.add('dragging');
+      document.getElementById('bucket-list').classList.add('is-dragging');
       e.dataTransfer.effectAllowed = 'move';
+      // Required for Firefox / some WebKit views
+      e.dataTransfer.setData('text/plain', String(idx));
     }
 
     function onDragOver(e, idx) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-    }
-
-    function onDragEnter(e) {
-      const row = e.target.closest('.bucket-row');
-      if (row) row.classList.add('drag-over');
-    }
-
-    function onDragLeave(e) {
-      const row = e.target.closest('.bucket-row');
-      if (row) row.classList.remove('drag-over');
+      // Highlight the target row
+      document.querySelectorAll('.bucket-row.drag-over').forEach(r => r.classList.remove('drag-over'));
+      const row = e.currentTarget;
+      if (row && dragIdx !== idx) row.classList.add('drag-over');
     }
 
     function onDrop(e, targetIdx) {
@@ -462,11 +463,13 @@
       const item = buckets.splice(dragIdx, 1)[0];
       buckets.splice(targetIdx, 0, item);
       dragIdx = null;
+      document.getElementById('bucket-list').classList.remove('is-dragging');
       renderBuckets();
     }
 
     function onDragEnd() {
       dragIdx = null;
+      document.getElementById('bucket-list').classList.remove('is-dragging');
       document.querySelectorAll('.bucket-row').forEach(r => {
         r.classList.remove('dragging', 'drag-over');
       });

@@ -587,6 +587,7 @@ fn open_settings(app: &AppHandle) {
         .title("GH Tray Settings")
         .inner_size(440.0, 720.0)
         .resizable(false)
+        .disable_drag_drop_handler() // Allow HTML5 drag-and-drop in the webview
         .build();
 }
 
