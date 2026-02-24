@@ -21,13 +21,12 @@ pub fn log_error(msg: &str) {
     }
 
     // Keep log file under 100KB by truncating if needed
-    if let Ok(meta) = std::fs::metadata(log_path()) {
-        if meta.len() > 100_000 {
-            if let Ok(content) = std::fs::read_to_string(log_path()) {
-                // Keep last ~50KB
-                let keep = &content[content.len().saturating_sub(50_000)..];
-                let _ = std::fs::write(log_path(), keep);
-            }
-        }
+    if let Ok(meta) = std::fs::metadata(log_path())
+        && meta.len() > 100_000
+        && let Ok(content) = std::fs::read_to_string(log_path())
+    {
+        // Keep last ~50KB
+        let keep = &content[content.len().saturating_sub(50_000)..];
+        let _ = std::fs::write(log_path(), keep);
     }
 }

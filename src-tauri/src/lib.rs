@@ -148,6 +148,7 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn save_settings(
     app: AppHandle,
     state: tauri::State<'_, GhTrayState>,
@@ -248,12 +249,9 @@ fn rebuild_tray_menu(
         ));
 
         for pr in &bucket_prs {
-            let repo_short = pr.repo.split('/').last().unwrap_or(&pr.repo);
+            let repo_short = pr.repo.split('/').next_back().unwrap_or(&pr.repo);
             let ci = ci_indicator(pr.ci_status.as_deref());
-            let age = pr
-                .created_at
-                .map(|d| models::relative_time(d))
-                .unwrap_or_default();
+            let age = pr.created_at.map(models::relative_time).unwrap_or_default();
             let age_suffix = if age.is_empty() {
                 String::new()
             } else {
@@ -269,19 +267,18 @@ fn rebuild_tray_menu(
                 age_suffix
             );
 
-            if let Some(avatar_path) = github::avatar_path(&pr.author) {
-                if let Ok(bytes) = std::fs::read(&avatar_path) {
-                    if let Ok(icon) = Image::from_bytes(&bytes) {
-                        items.push(AnyItem::Icon(
-                            IconMenuItemBuilder::new(&label)
-                                .id(format!("pr_{}", pr.id))
-                                .icon(icon)
-                                .enabled(true)
-                                .build(app)?,
-                        ));
-                        continue;
-                    }
-                }
+            if let Some(avatar_path) = github::avatar_path(&pr.author)
+                && let Ok(bytes) = std::fs::read(&avatar_path)
+                && let Ok(icon) = Image::from_bytes(&bytes)
+            {
+                items.push(AnyItem::Icon(
+                    IconMenuItemBuilder::new(&label)
+                        .id(format!("pr_{}", pr.id))
+                        .icon(icon)
+                        .enabled(true)
+                        .build(app)?,
+                ));
+                continue;
             }
 
             items.push(AnyItem::Text(
@@ -362,11 +359,11 @@ fn send_notifications(app: &AppHandle, transitions: &[Transition], config: &AppC
 // ── Loading indicator ────────────────────────────────────────────────────────
 
 fn set_loading(app: &AppHandle, loading: bool) {
-    if let Some(tray) = app.tray_by_id("main") {
-        if loading {
-            let _ = tray.set_title(Some("↻"));
-            let _ = tray.set_tooltip(Some("GH Tray — Fetching..."));
-        }
+    if let Some(tray) = app.tray_by_id("main")
+        && loading
+    {
+        let _ = tray.set_title(Some("↻"));
+        let _ = tray.set_tooltip(Some("GH Tray — Fetching..."));
     }
 }
 
@@ -595,8 +592,8 @@ pub fn run() {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
-            setup_tray(&app.handle());
-            check_startup(&app.handle());
+            setup_tray(app.handle());
+            check_startup(app.handle());
             start_polling(app.handle().clone());
             Ok(())
         })
@@ -609,12 +606,11 @@ pub fn run() {
             event: WindowEvent::CloseRequested { api, .. },
             ..
         } = &event
+            && label == "settings"
         {
-            if label == "settings" {
-                api.prevent_close();
-                if let Some(window) = app_handle.get_webview_window("settings") {
-                    let _ = window.hide();
-                }
+            api.prevent_close();
+            if let Some(window) = app_handle.get_webview_window("settings") {
+                let _ = window.hide();
             }
         }
     });

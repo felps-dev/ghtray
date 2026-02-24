@@ -245,5 +245,5 @@ impl Transition {
 }
 
 fn short_repo(repo: &str) -> &str {
-    repo.split('/').last().unwrap_or(repo)
+    repo.split('/').next_back().unwrap_or(repo)
 }

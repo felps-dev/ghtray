@@ -372,10 +372,10 @@ pub fn ensure_avatars(authors: &[String]) {
             .unwrap_or(false);
 
         if ok && tmp.exists() {
-            if let Ok(bytes) = std::fs::read(&tmp) {
-                if let Ok(img) = image::load_from_memory(&bytes) {
-                    let _ = make_circular_png(&img, 64, &path);
-                }
+            if let Ok(bytes) = std::fs::read(&tmp)
+                && let Ok(img) = image::load_from_memory(&bytes)
+            {
+                let _ = make_circular_png(&img, 64, &path);
             }
             let _ = std::fs::remove_file(&tmp);
         }
