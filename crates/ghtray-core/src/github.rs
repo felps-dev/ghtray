@@ -17,9 +17,9 @@ static GH_PATH: OnceLock<String> = OnceLock::new();
 fn gh_bin() -> &'static str {
     GH_PATH.get_or_init(|| {
         let candidates = [
-            "/opt/homebrew/bin/gh",  // Apple Silicon Homebrew
-            "/usr/local/bin/gh",     // Intel Homebrew
-            "/usr/bin/gh",           // System
+            "/opt/homebrew/bin/gh",          // Apple Silicon Homebrew
+            "/usr/local/bin/gh",             // Intel Homebrew
+            "/usr/bin/gh",                   // System
             "/run/current-system/sw/bin/gh", // NixOS
         ];
 
@@ -102,7 +102,13 @@ pub enum GhStatus {
 /// Quick check: is `gh` installed and authenticated?
 pub fn check_gh_status() -> GhStatus {
     let bin = gh_bin();
-    if bin == "gh" && Command::new("which").arg("gh").output().map(|o| !o.status.success()).unwrap_or(true) {
+    if bin == "gh"
+        && Command::new("which")
+            .arg("gh")
+            .output()
+            .map(|o| !o.status.success())
+            .unwrap_or(true)
+    {
         // If gh_bin() fell back to "gh" and `which` can't find it
         if Command::new(bin).arg("--version").output().is_err() {
             return GhStatus::NotInstalled;
@@ -172,25 +178,34 @@ pub fn fetch_prs(merged_days: i64) -> Result<GqlResponse> {
         bail!("gh api graphql failed: {}", stderr.trim());
     }
 
-    let response: GqlResponse = serde_json::from_slice(&output.stdout)
-        .context("Failed to parse GraphQL response")?;
+    let response: GqlResponse =
+        serde_json::from_slice(&output.stdout).context("Failed to parse GraphQL response")?;
 
     Ok(response)
 }
 
 // ── Categorization engine ───────────────────────────────────────────────────
 
-fn extract_commit_info(pr: &PullRequest) -> (Option<String>, Option<chrono::DateTime<Utc>>, Option<String>) {
-    pr.commits.as_ref().and_then(|c| c.nodes.first()).map_or(
-        (None, None, None),
-        |node| {
+fn extract_commit_info(
+    pr: &PullRequest,
+) -> (
+    Option<String>,
+    Option<chrono::DateTime<Utc>>,
+    Option<String>,
+) {
+    pr.commits
+        .as_ref()
+        .and_then(|c| c.nodes.first())
+        .map_or((None, None, None), |node| {
             (
                 Some(node.commit.oid.clone()),
                 Some(node.commit.committed_date),
-                node.commit.status_check_rollup.as_ref().map(|s| s.state.clone()),
+                node.commit
+                    .status_check_rollup
+                    .as_ref()
+                    .map(|s| s.state.clone()),
             )
-        },
-    )
+        })
 }
 
 fn make_pr(pr: &PullRequest, bucket: Bucket) -> CategorizedPr {
@@ -201,7 +216,11 @@ fn make_pr(pr: &PullRequest, bucket: Bucket) -> CategorizedPr {
         title: pr.title.clone(),
         url: pr.url.clone(),
         repo: pr.repository.name_with_owner.clone(),
-        author: pr.author.as_ref().map(|a| a.login.clone()).unwrap_or_default(),
+        author: pr
+            .author
+            .as_ref()
+            .map(|a| a.login.clone())
+            .unwrap_or_default(),
         bucket,
         created_at: pr.created_at,
         updated_at: pr.updated_at,
@@ -226,9 +245,10 @@ fn categorize_authored(pr: &PullRequest) -> CategorizedPr {
 
 fn categorize_reviewed_by_me(pr: &PullRequest, viewer: &str) -> CategorizedPr {
     let _my_review = pr.latest_reviews.as_ref().and_then(|reviews| {
-        reviews.nodes.iter().find(|r| {
-            r.author.as_ref().is_some_and(|a| a.login == viewer)
-        })
+        reviews
+            .nodes
+            .iter()
+            .find(|r| r.author.as_ref().is_some_and(|a| a.login == viewer))
     });
 
     make_pr(pr, Bucket::WaitingForAuthor)
@@ -264,7 +284,11 @@ pub fn categorize_all(data: &GqlData, viewer: &str) -> Vec<CategorizedPr> {
                 title: pr.title.clone(),
                 url: pr.url.clone(),
                 repo: pr.repository.name_with_owner.clone(),
-                author: pr.author.as_ref().map(|a| a.login.clone()).unwrap_or_default(),
+                author: pr
+                    .author
+                    .as_ref()
+                    .map(|a| a.login.clone())
+                    .unwrap_or_default(),
                 bucket: Bucket::RecentlyMerged,
                 created_at: pr.created_at,
                 updated_at: pr.merged_at, // use merged_at as the "updated" time
@@ -330,7 +354,11 @@ pub fn ensure_avatars(authors: &[String]) {
     let dir = avatars_dir();
     for author in authors {
         let path = dir.join(format!("{author}.png"));
-        if path.exists() && std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false) {
+        if path.exists()
+            && std::fs::metadata(&path)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        {
             continue;
         }
         let tmp = dir.join(format!("{author}.tmp"));
@@ -356,9 +384,9 @@ pub fn ensure_avatars(authors: &[String]) {
 
 /// Resize an image to `size x size`, apply a circular mask, and save as RGBA PNG.
 fn make_circular_png(img: &image::DynamicImage, size: u32, path: &std::path::Path) -> Result<()> {
-    use image::{RgbaImage, Rgba};
-    use image::codecs::png::PngEncoder;
     use image::ImageEncoder;
+    use image::codecs::png::PngEncoder;
+    use image::{Rgba, RgbaImage};
 
     let resized = img.resize_exact(size, size, image::imageops::FilterType::Lanczos3);
     let rgba = resized.to_rgba8();
@@ -385,12 +413,7 @@ fn make_circular_png(img: &image::DynamicImage, size: u32, path: &std::path::Pat
 
     let file = std::fs::File::create(path)?;
     let encoder = PngEncoder::new(std::io::BufWriter::new(file));
-    encoder.write_image(
-        output.as_raw(),
-        size,
-        size,
-        image::ExtendedColorType::Rgba8,
-    )?;
+    encoder.write_image(output.as_raw(), size, size, image::ExtendedColorType::Rgba8)?;
 
     Ok(())
 }
@@ -398,7 +421,11 @@ fn make_circular_png(img: &image::DynamicImage, size: u32, path: &std::path::Pat
 /// Get the cached avatar path for a given author, if it exists.
 pub fn avatar_path(author: &str) -> Option<std::path::PathBuf> {
     let path = avatars_dir().join(format!("{author}.png"));
-    if path.exists() && std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false) {
+    if path.exists()
+        && std::fs::metadata(&path)
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+    {
         Some(path)
     } else {
         None
@@ -407,7 +434,10 @@ pub fn avatar_path(author: &str) -> Option<std::path::PathBuf> {
 
 // ── State diffing ───────────────────────────────────────────────────────────
 
-pub fn diff_states(old_prs: &HashMap<String, CategorizedPr>, new_prs: &[CategorizedPr]) -> Vec<Transition> {
+pub fn diff_states(
+    old_prs: &HashMap<String, CategorizedPr>,
+    new_prs: &[CategorizedPr],
+) -> Vec<Transition> {
     let mut transitions = Vec::new();
     let new_map: HashMap<&str, &CategorizedPr> =
         new_prs.iter().map(|pr| (pr.id.as_str(), pr)).collect();

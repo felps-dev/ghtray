@@ -6,10 +6,12 @@ use ghtray_core::state;
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{
-    AppHandle, Manager, RunEvent, WindowEvent,
-    WebviewUrl, WebviewWindowBuilder,
+    AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
     image::Image,
-    menu::{IconMenuItem, IconMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem},
+    menu::{
+        IconMenuItem, IconMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder,
+        PredefinedMenuItem,
+    },
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_notification::NotificationExt;
@@ -102,12 +104,24 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
             let repo_entries: Vec<RepoEntry> = repos
                 .into_iter()
                 .map(|(full_name, count)| {
-                    let short_name = full_name.split('/').nth(1).unwrap_or(&full_name).to_string();
+                    let short_name = full_name
+                        .split('/')
+                        .nth(1)
+                        .unwrap_or(&full_name)
+                        .to_string();
                     let enabled = config.is_repo_allowed(&full_name);
-                    RepoEntry { full_name, short_name, enabled, pr_count: count }
+                    RepoEntry {
+                        full_name,
+                        short_name,
+                        enabled,
+                        pr_count: count,
+                    }
                 })
                 .collect();
-            OrgEntry { name: owner, repos: repo_entries }
+            OrgEntry {
+                name: owner,
+                repos: repo_entries,
+            }
         })
         .collect();
 
@@ -176,7 +190,11 @@ fn save_settings(
 
 // ── Native tray menu ────────────────────────────────────────────────────────
 
-fn rebuild_tray_menu(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig) -> tauri::Result<()> {
+fn rebuild_tray_menu(
+    app: &AppHandle,
+    prs: &[CategorizedPr],
+    config: &AppConfig,
+) -> tauri::Result<()> {
     enum AnyItem {
         Text(MenuItem<tauri::Wry>),
         Icon(IconMenuItem<tauri::Wry>),
@@ -191,7 +209,7 @@ fn rebuild_tray_menu(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig)
         items.push(AnyItem::Text(
             MenuItemBuilder::with_id("error_msg", format!("⚠ {}", truncate(err, 50)))
                 .enabled(false)
-                .build(app)?
+                .build(app)?,
         ));
         items.push(AnyItem::Sep(PredefinedMenuItem::separator(app)?));
     }
@@ -202,7 +220,8 @@ fn rebuild_tray_menu(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig)
         if !config.is_bucket_visible(bucket.id()) {
             continue;
         }
-        let mut bucket_prs: Vec<&CategorizedPr> = prs.iter().filter(|pr| pr.bucket == *bucket).collect();
+        let mut bucket_prs: Vec<&CategorizedPr> =
+            prs.iter().filter(|pr| pr.bucket == *bucket).collect();
         if bucket_prs.is_empty() {
             continue;
         }
@@ -220,18 +239,35 @@ fn rebuild_tray_menu(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig)
         has_buckets = true;
 
         items.push(AnyItem::Text(
-            MenuItemBuilder::with_id(format!("bucket_{}", bucket.id()), format!("{} ({})", bucket.label(), bucket_prs.len()))
-                .enabled(false)
-                .build(app)?
+            MenuItemBuilder::with_id(
+                format!("bucket_{}", bucket.id()),
+                format!("{} ({})", bucket.label(), bucket_prs.len()),
+            )
+            .enabled(false)
+            .build(app)?,
         ));
 
         for pr in &bucket_prs {
             let repo_short = pr.repo.split('/').last().unwrap_or(&pr.repo);
             let ci = ci_indicator(pr.ci_status.as_deref());
-            let age = pr.created_at.map(|d| models::relative_time(d)).unwrap_or_default();
-            let age_suffix = if age.is_empty() { String::new() } else { format!(" · {age}") };
+            let age = pr
+                .created_at
+                .map(|d| models::relative_time(d))
+                .unwrap_or_default();
+            let age_suffix = if age.is_empty() {
+                String::new()
+            } else {
+                format!(" · {age}")
+            };
 
-            let label = format!("  #{} {}{} ({}){}", pr.number, truncate(&pr.title, 36), ci, repo_short, age_suffix);
+            let label = format!(
+                "  #{} {}{} ({}){}",
+                pr.number,
+                truncate(&pr.title, 36),
+                ci,
+                repo_short,
+                age_suffix
+            );
 
             if let Some(avatar_path) = github::avatar_path(&pr.author) {
                 if let Ok(bytes) = std::fs::read(&avatar_path) {
@@ -241,7 +277,7 @@ fn rebuild_tray_menu(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig)
                                 .id(format!("pr_{}", pr.id))
                                 .icon(icon)
                                 .enabled(true)
-                                .build(app)?
+                                .build(app)?,
                         ));
                         continue;
                     }
@@ -251,7 +287,7 @@ fn rebuild_tray_menu(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig)
             items.push(AnyItem::Text(
                 MenuItemBuilder::with_id(format!("pr_{}", pr.id), &label)
                     .enabled(true)
-                    .build(app)?
+                    .build(app)?,
             ));
         }
     }
@@ -265,14 +301,26 @@ fn rebuild_tray_menu(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig)
         items.push(AnyItem::Text(
             MenuItemBuilder::with_id("empty", msg)
                 .enabled(false)
-                .build(app)?
+                .build(app)?,
         ));
     }
 
     items.push(AnyItem::Sep(PredefinedMenuItem::separator(app)?));
-    items.push(AnyItem::Text(MenuItemBuilder::with_id("action_refresh", "↻ Refresh Now").enabled(true).build(app)?));
-    items.push(AnyItem::Text(MenuItemBuilder::with_id("action_settings", "Settings...").enabled(true).build(app)?));
-    items.push(AnyItem::Text(MenuItemBuilder::with_id("action_quit", "Quit GH Tray").enabled(true).build(app)?));
+    items.push(AnyItem::Text(
+        MenuItemBuilder::with_id("action_refresh", "↻ Refresh Now")
+            .enabled(true)
+            .build(app)?,
+    ));
+    items.push(AnyItem::Text(
+        MenuItemBuilder::with_id("action_settings", "Settings...")
+            .enabled(true)
+            .build(app)?,
+    ));
+    items.push(AnyItem::Text(
+        MenuItemBuilder::with_id("action_quit", "Quit GH Tray")
+            .enabled(true)
+            .build(app)?,
+    ));
 
     let mut builder = MenuBuilder::new(app);
     for item in &items {
@@ -300,9 +348,7 @@ fn send_notifications(app: &AppHandle, transitions: &[Transition], config: &AppC
 
     for transition in transitions {
         if let Some((title, body)) = transition.notification_text() {
-            let mut builder = app.notification().builder()
-                .title(title)
-                .body(&body);
+            let mut builder = app.notification().builder().title(title).body(&body);
 
             if config.notification_sound {
                 builder = builder.sound("default");
@@ -360,7 +406,8 @@ fn do_fetch(app: &AppHandle) {
             let all_prs = github::categorize_all(&response.data, &viewer_login);
             let filtered = github::filter_prs(all_prs.clone(), &config);
 
-            let authors: Vec<String> = filtered.iter()
+            let authors: Vec<String> = filtered
+                .iter()
                 .map(|pr| pr.author.clone())
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
@@ -376,7 +423,10 @@ fn do_fetch(app: &AppHandle) {
 
             let new_state = state::AppState {
                 last_fetch: Some(chrono::Utc::now()),
-                prs: filtered.iter().map(|pr| (pr.id.clone(), pr.clone())).collect(),
+                prs: filtered
+                    .iter()
+                    .map(|pr| (pr.id.clone(), pr.clone()))
+                    .collect(),
             };
             let _ = state::save_state(&new_state);
 
@@ -402,7 +452,12 @@ fn update_tray(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig) {
         .count();
 
     if let Some(tray) = app.tray_by_id("main") {
-        let has_error = app.state::<GhTrayState>().last_error.lock().unwrap().is_some();
+        let has_error = app
+            .state::<GhTrayState>()
+            .last_error
+            .lock()
+            .unwrap()
+            .is_some();
         let title = if has_error {
             "⚠".to_string()
         } else if count > 0 {
@@ -491,7 +546,8 @@ fn check_startup(app: &AppHandle) {
         GhStatus::NotInstalled => {
             logging::log_error("gh CLI not found");
             let state = app.state::<GhTrayState>();
-            *state.last_error.lock().unwrap() = Some("gh CLI not installed. Install from https://cli.github.com".to_string());
+            *state.last_error.lock().unwrap() =
+                Some("gh CLI not installed. Install from https://cli.github.com".to_string());
             let config = state.config.lock().unwrap().clone();
             update_tray(app, &[], &config);
             open_settings(app);
@@ -499,7 +555,8 @@ fn check_startup(app: &AppHandle) {
         GhStatus::NotAuthenticated(_) => {
             logging::log_error("gh CLI not authenticated");
             let state = app.state::<GhTrayState>();
-            *state.last_error.lock().unwrap() = Some("gh not authenticated. Run `gh auth login` in terminal".to_string());
+            *state.last_error.lock().unwrap() =
+                Some("gh not authenticated. Run `gh auth login` in terminal".to_string());
             let config = state.config.lock().unwrap().clone();
             update_tray(app, &[], &config);
             open_settings(app);
@@ -510,7 +567,9 @@ fn check_startup(app: &AppHandle) {
 // ── Tray setup ──────────────────────────────────────────────────────────────
 
 fn setup_tray(app: &AppHandle) {
-    let Some(tray) = app.tray_by_id("main") else { return };
+    let Some(tray) = app.tray_by_id("main") else {
+        return;
+    };
     let default_config = AppConfig::default();
     let _ = rebuild_tray_menu(app, &[], &default_config);
 
@@ -545,7 +604,12 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app_handle, event| {
-        if let RunEvent::WindowEvent { label, event: WindowEvent::CloseRequested { api, .. }, .. } = &event {
+        if let RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::CloseRequested { api, .. },
+            ..
+        } = &event
+        {
             if label == "settings" {
                 api.prevent_close();
                 if let Some(window) = app_handle.get_webview_window("settings") {
