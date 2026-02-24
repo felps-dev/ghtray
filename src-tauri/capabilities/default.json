@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for GH Tray",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "notification:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
+  ]
+}

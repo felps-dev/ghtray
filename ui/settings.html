@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GH Tray Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #1a1a2e;
+      --surface: #16213e;
+      --border: #0f3460;
+      --text: #e0e0e0;
+      --text-dim: #8892a4;
+      --accent: #00d2ff;
+      --green: #6bcb77;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      padding: 20px;
+    }
+
+    h1 { font-size: 16px; font-weight: 600; margin-bottom: 20px; }
+
+    .section { margin-bottom: 24px; }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .field label { min-width: 120px; }
+
+    input[type="number"] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      width: 80px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    input[type="number"]:focus { border-color: var(--accent); }
+
+    .field-hint { font-size: 11px; color: var(--text-dim); }
+
+    .repo-tree {
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .repo-tree::-webkit-scrollbar { width: 6px; }
+    .repo-tree::-webkit-scrollbar-track { background: transparent; }
+    .repo-tree::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .org-group { border-bottom: 1px solid var(--border); }
+    .org-group:last-child { border-bottom: none; }
+
+    .org-row {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      cursor: pointer;
+      transition: background 0.1s;
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .org-row:hover { background: rgba(255,255,255,0.03); }
+
+    .org-row input[type="checkbox"] {
+      margin-right: 10px;
+      accent-color: var(--accent);
+    }
+
+    .org-name { flex: 1; }
+
+    .org-count {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 400;
+    }
+
+    .repo-row {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px 6px 36px;
+      cursor: pointer;
+      transition: background 0.1s;
+      font-size: 12px;
+    }
+
+    .repo-row:hover { background: rgba(255,255,255,0.03); }
+
+    .repo-row input[type="checkbox"] {
+      margin-right: 10px;
+      accent-color: var(--accent);
+    }
+
+    .repo-name {
+      flex: 1;
+      color: var(--text);
+    }
+
+    .repo-count {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 20px;
+      align-items: center;
+    }
+
+    button {
+      padding: 8px 20px;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      transition: all 0.15s;
+    }
+
+    button:hover { border-color: var(--accent); }
+
+    button.primary {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+
+    button.primary:hover { opacity: 0.9; }
+
+    .saved-msg {
+      color: var(--green);
+      font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+
+    .saved-msg.show { opacity: 1; }
+
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .toggle-label input[type="checkbox"] {
+      accent-color: var(--accent);
+    }
+
+    .bucket-list {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 4px 0;
+    }
+
+    .bucket-row {
+      display: flex;
+      align-items: center;
+      padding: 6px 12px;
+      cursor: pointer;
+      transition: background 0.1s;
+      font-size: 13px;
+    }
+
+    .bucket-row:hover { background: rgba(255,255,255,0.03); }
+
+    .bucket-row input[type="checkbox"] {
+      margin-right: 10px;
+      accent-color: var(--accent);
+    }
+
+    .empty-msg {
+      padding: 20px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>GH Tray Settings</h1>
+
+  <div class="section">
+    <div class="section-title">General</div>
+    <div class="field">
+      <label class="toggle-label">
+        <input type="checkbox" id="autostart" />
+        <span>Launch at login</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Polling</div>
+    <div class="field">
+      <label>Poll interval</label>
+      <input type="number" id="poll-interval" min="30" step="10" />
+      <span class="field-hint">seconds (min 30)</span>
+    </div>
+    <div class="field">
+      <label>Merged window</label>
+      <input type="number" id="merged-window" min="1" max="90" />
+      <span class="field-hint">days</span>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Notifications</div>
+    <div class="field">
+      <label class="toggle-label">
+        <input type="checkbox" id="notifications-enabled" />
+        <span>Enable notifications</span>
+      </label>
+    </div>
+    <div class="field">
+      <label class="toggle-label">
+        <input type="checkbox" id="notification-sound" />
+        <span>Play sound</span>
+      </label>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Visible Sections</div>
+    <div id="bucket-list" class="bucket-list"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Organizations &amp; Repositories</div>
+    <div id="repo-tree" class="repo-tree">
+      <div class="empty-msg">Loading...</div>
+    </div>
+  </div>
+
+  <div class="actions">
+    <span id="saved-msg" class="saved-msg">Saved!</span>
+    <button onclick="cancel()">Cancel</button>
+    <button class="primary" onclick="save()">Save</button>
+  </div>
+
+  <script>
+    const { invoke } = window.__TAURI__.core;
+    const { getCurrentWindow } = window.__TAURI__.window;
+
+    let orgs = [];
+    let buckets = [];
+
+    async function load() {
+      const data = await invoke('get_settings');
+      document.getElementById('autostart').checked = data.autostart;
+      document.getElementById('poll-interval').value = data.poll_interval_secs;
+      document.getElementById('merged-window').value = data.merged_window_days;
+      document.getElementById('notifications-enabled').checked = data.notifications_enabled;
+      document.getElementById('notification-sound').checked = data.notification_sound;
+      orgs = data.orgs;
+      buckets = data.buckets;
+      render();
+    }
+
+    function render() {
+      renderBuckets();
+      renderRepos();
+    }
+
+    function renderBuckets() {
+      const el = document.getElementById('bucket-list');
+      let html = '';
+      for (let i = 0; i < buckets.length; i++) {
+        const b = buckets[i];
+        html += `<label class="bucket-row">`;
+        html += `<input type="checkbox" ${b.visible ? 'checked' : ''} onchange="buckets[${i}].visible = this.checked" />`;
+        html += `<span>${esc(b.label)}</span>`;
+        html += `</label>`;
+      }
+      el.innerHTML = html;
+    }
+
+    function renderRepos() {
+      const tree = document.getElementById('repo-tree');
+
+      if (orgs.length === 0) {
+        tree.innerHTML = '<div class="empty-msg">No repositories found yet. Data loads after first fetch.</div>';
+        return;
+      }
+
+      let html = '';
+      for (let oi = 0; oi < orgs.length; oi++) {
+        const org = orgs[oi];
+        const allEnabled = org.repos.every(r => r.enabled);
+        const someEnabled = org.repos.some(r => r.enabled);
+        const totalPrs = org.repos.reduce((sum, r) => sum + r.pr_count, 0);
+
+        html += `<div class="org-group">`;
+        html += `<label class="org-row">`;
+        html += `<input type="checkbox" data-org="${oi}" ${allEnabled ? 'checked' : ''} ${(!allEnabled && someEnabled) ? 'data-indeterminate="true"' : ''} onchange="toggleOrg(${oi}, this.checked)" />`;
+        html += `<span class="org-name">${esc(org.name)}</span>`;
+        html += `<span class="org-count">${totalPrs} PRs</span>`;
+        html += `</label>`;
+
+        for (let ri = 0; ri < org.repos.length; ri++) {
+          const repo = org.repos[ri];
+          html += `<label class="repo-row">`;
+          html += `<input type="checkbox" data-org="${oi}" data-repo="${ri}" ${repo.enabled ? 'checked' : ''} onchange="toggleRepo(${oi}, ${ri}, this.checked)" />`;
+          html += `<span class="repo-name">${esc(repo.short_name)}</span>`;
+          html += `<span class="repo-count">${repo.pr_count}</span>`;
+          html += `</label>`;
+        }
+
+        html += `</div>`;
+      }
+
+      tree.innerHTML = html;
+      updateIndeterminate();
+    }
+
+    function toggleOrg(oi, checked) {
+      orgs[oi].repos.forEach(r => r.enabled = checked);
+      render();
+    }
+
+    function toggleRepo(oi, ri, checked) {
+      orgs[oi].repos[ri].enabled = checked;
+      render();
+    }
+
+    function updateIndeterminate() {
+      for (let oi = 0; oi < orgs.length; oi++) {
+        const org = orgs[oi];
+        const cb = document.querySelector(`input[data-org="${oi}"]:not([data-repo])`);
+        if (!cb) continue;
+        const allOn = org.repos.every(r => r.enabled);
+        const someOn = org.repos.some(r => r.enabled);
+        cb.checked = allOn;
+        cb.indeterminate = !allOn && someOn;
+      }
+    }
+
+    async function save() {
+      // Collect blocked repos (unchecked ones)
+      const blocked = [];
+      for (const org of orgs) {
+        for (const repo of org.repos) {
+          if (!repo.enabled) {
+            blocked.push(repo.full_name);
+          }
+        }
+      }
+
+      const hiddenBuckets = buckets.filter(b => !b.visible).map(b => b.id);
+
+      await invoke('save_settings', {
+        pollIntervalSecs: parseInt(document.getElementById('poll-interval').value) || 120,
+        mergedWindowDays: parseInt(document.getElementById('merged-window').value) || 7,
+        blockedRepos: blocked,
+        notificationsEnabled: document.getElementById('notifications-enabled').checked,
+        notificationSound: document.getElementById('notification-sound').checked,
+        hiddenBuckets: hiddenBuckets,
+        autostart: document.getElementById('autostart').checked,
+      });
+
+      const msg = document.getElementById('saved-msg');
+      msg.classList.add('show');
+      setTimeout(() => msg.classList.remove('show'), 2000);
+    }
+
+    function cancel() {
+      getCurrentWindow().hide();
+    }
+
+    function esc(str) {
+      const d = document.createElement('div');
+      d.textContent = str;
+      return d.innerHTML;
+    }
+
+    load();
+  </script>
+</body>
+</html>

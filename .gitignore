@@ -1,0 +1,21 @@
+# Build artifacts
+/target
+/src-tauri/target
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Tauri
+/src-tauri/gen/
+
+# Environment
+.env
+.env.*
