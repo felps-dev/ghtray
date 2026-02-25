@@ -418,6 +418,123 @@ fn make_circular_png(img: &image::DynamicImage, size: u32, path: &std::path::Pat
     Ok(())
 }
 
+/// Generate a minidenticon-style avatar for a username and save as circular PNG.
+/// Produces a 5x5 symmetric grid with a color derived from the name hash.
+pub fn generate_identicon(username: &str, path: &std::path::Path) -> Result<()> {
+    use image::codecs::png::PngEncoder;
+    use image::{ImageEncoder, Rgba, RgbaImage};
+
+    let size: u32 = 64;
+    let grid = 5u32;
+    let cell = size / grid; // 12px per cell, 4px padding
+
+    // Simple hash (djb2)
+    let mut hash: u64 = 5381;
+    for b in username.bytes() {
+        hash = hash.wrapping_mul(33).wrapping_add(b as u64);
+    }
+
+    // Derive color from hash — pick from a set of saturated hues
+    let hue = (hash % 360) as f64;
+    let (r, g, b_col) = hsl_to_rgb(hue, 0.65, 0.55);
+    let fg = Rgba([r, g, b_col, 255]);
+    let bg = Rgba([30u8, 30, 50, 255]); // dark background matching app theme
+
+    // Build 5x5 grid — horizontally symmetric, so columns 0,1,2 define everything
+    // Use 15 bits from the hash for the 15 unique cells (3 cols x 5 rows)
+    let bits = hash >> 8; // skip lowest bits (used for color)
+    let mut grid_cells = [[false; 5]; 5];
+    for (row, grid_row) in grid_cells.iter_mut().enumerate() {
+        for col in 0..3 {
+            let bit_idx = row * 3 + col;
+            let on = (bits >> bit_idx) & 1 == 1;
+            grid_row[col] = on;
+            grid_row[4 - col] = on; // mirror
+        }
+    }
+
+    // Render to image
+    let padding = (size - grid * cell) / 2;
+    let mut img = RgbaImage::from_pixel(size, size, bg);
+
+    for (row, grid_row) in grid_cells.iter().enumerate() {
+        for (col, &filled) in grid_row.iter().enumerate() {
+            if !filled {
+                continue;
+            }
+            let x0 = padding + col as u32 * cell;
+            let y0 = padding + row as u32 * cell;
+            for dy in 0..cell {
+                for dx in 0..cell {
+                    if x0 + dx < size && y0 + dy < size {
+                        img.put_pixel(x0 + dx, y0 + dy, fg);
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply circular mask
+    let center = size as f64 / 2.0;
+    let radius = center;
+    let mut output = RgbaImage::new(size, size);
+    for (x, y, pixel) in img.enumerate_pixels() {
+        let dx = x as f64 - center + 0.5;
+        let dy = y as f64 - center + 0.5;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist <= radius {
+            let alpha = if dist > radius - 1.0 {
+                ((radius - dist) * 255.0) as u8
+            } else {
+                pixel[3]
+            };
+            output.put_pixel(x, y, Rgba([pixel[0], pixel[1], pixel[2], alpha]));
+        }
+    }
+
+    let file = std::fs::File::create(path)?;
+    let encoder = PngEncoder::new(std::io::BufWriter::new(file));
+    encoder.write_image(output.as_raw(), size, size, image::ExtendedColorType::Rgba8)?;
+
+    Ok(())
+}
+
+/// Generate identicon avatars for demo mode (no network needed).
+pub fn ensure_demo_avatars(authors: &[String]) {
+    let dir = avatars_dir();
+    for author in authors {
+        let path = dir.join(format!("{author}.png"));
+        if path.exists()
+            && std::fs::metadata(&path)
+                .map(|m| m.len() > 0)
+                .unwrap_or(false)
+        {
+            continue;
+        }
+        let _ = generate_identicon(author, &path);
+    }
+}
+
+/// Convert HSL to RGB (h in 0..360, s and l in 0..1)
+fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r, g, b) = match h as u32 {
+        0..60 => (c, x, 0.0),
+        60..120 => (x, c, 0.0),
+        120..180 => (0.0, c, x),
+        180..240 => (0.0, x, c),
+        240..300 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    (
+        ((r + m) * 255.0) as u8,
+        ((g + m) * 255.0) as u8,
+        ((b + m) * 255.0) as u8,
+    )
+}
+
 /// Get the cached avatar path for a given author, if it exists.
 pub fn avatar_path(author: &str) -> Option<std::path::PathBuf> {
     let path = avatars_dir().join(format!("{author}.png"));

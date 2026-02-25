@@ -1,10 +1,17 @@
 use ghtray_core::config::AppConfig;
 use ghtray_core::github::{self, GhStatus};
 use ghtray_core::logging;
-use ghtray_core::models::{self, CategorizedPr, Transition};
+use ghtray_core::models::{self, Bucket, CategorizedPr, Transition};
 use ghtray_core::state;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static DEMO_MODE: AtomicBool = AtomicBool::new(false);
+
+fn is_demo() -> bool {
+    DEMO_MODE.load(Ordering::Relaxed)
+}
 use tauri::{
     AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, WindowEvent,
     image::Image,
@@ -146,19 +153,26 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
 
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
 
-    let gh_status = match github::check_gh_status() {
-        GhStatus::Ok => GhStatusInfo {
+    let gh_status = if is_demo() {
+        GhStatusInfo {
             ok: true,
-            message: "Connected".to_string(),
-        },
-        GhStatus::NotInstalled => GhStatusInfo {
-            ok: false,
-            message: "gh CLI not installed. Install from https://cli.github.com".to_string(),
-        },
-        GhStatus::NotAuthenticated(msg) => GhStatusInfo {
-            ok: false,
-            message: format!("Not authenticated. Run `gh auth login`. {msg}"),
-        },
+            message: "Demo mode".to_string(),
+        }
+    } else {
+        match github::check_gh_status() {
+            GhStatus::Ok => GhStatusInfo {
+                ok: true,
+                message: "Connected".to_string(),
+            },
+            GhStatus::NotInstalled => GhStatusInfo {
+                ok: false,
+                message: "gh CLI not installed. Install from https://cli.github.com".to_string(),
+            },
+            GhStatus::NotAuthenticated(msg) => GhStatusInfo {
+                ok: false,
+                message: format!("Not authenticated. Run `gh auth login`. {msg}"),
+            },
+        }
     };
 
     SettingsData {
@@ -175,6 +189,12 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
 
 #[tauri::command]
 fn check_gh(state: tauri::State<'_, GhTrayState>) -> GhStatusInfo {
+    if is_demo() {
+        return GhStatusInfo {
+            ok: true,
+            message: "Demo mode".to_string(),
+        };
+    }
     match github::check_gh_status() {
         GhStatus::Ok => {
             *state.last_error.lock().unwrap() = None;
@@ -424,6 +444,186 @@ fn play_system_sound() {
     });
 }
 
+// ── Demo mode ────────────────────────────────────────────────────────────────
+
+fn demo_prs() -> Vec<CategorizedPr> {
+    use chrono::{Duration, Utc};
+
+    let now = Utc::now();
+
+    let pr = |id: &str,
+              number: u32,
+              title: &str,
+              repo: &str,
+              author: &str,
+              bucket: Bucket,
+              ci: Option<&str>,
+              hours_ago: i64| CategorizedPr {
+        id: id.to_string(),
+        number,
+        title: title.to_string(),
+        url: format!("https://github.com/{repo}/pull/{number}"),
+        repo: repo.to_string(),
+        author: author.to_string(),
+        bucket,
+        created_at: Some(now - Duration::hours(hours_ago)),
+        updated_at: Some(now - Duration::hours(hours_ago / 2)),
+        last_commit_sha: Some(format!("abc{id}")),
+        last_commit_date: Some(now - Duration::hours(hours_ago / 2)),
+        ci_status: ci.map(String::from),
+    };
+
+    vec![
+        // Needs Your Review
+        pr(
+            "d1",
+            342,
+            "Add OAuth2 PKCE flow",
+            "acme/backend",
+            "olivia-dev",
+            Bucket::NeedsYourReview,
+            Some("SUCCESS"),
+            2,
+        ),
+        pr(
+            "d2",
+            187,
+            "Migrate users table to UUIDs",
+            "acme/backend",
+            "james-eng",
+            Bucket::NeedsYourReview,
+            Some("SUCCESS"),
+            5,
+        ),
+        pr(
+            "d3",
+            891,
+            "Add dark mode support",
+            "acme/web-app",
+            "sarah-ui",
+            Bucket::NeedsYourReview,
+            Some("PENDING"),
+            1,
+        ),
+        pr(
+            "d4",
+            56,
+            "Bump dependencies (Feb 2026)",
+            "acme/infra",
+            "dependabot",
+            Bucket::NeedsYourReview,
+            Some("SUCCESS"),
+            8,
+        ),
+        // Returned to You (changes requested)
+        pr(
+            "d5",
+            204,
+            "Refactor payment processing",
+            "acme/backend",
+            "demo-user",
+            Bucket::ReturnedToYou,
+            Some("FAILURE"),
+            24,
+        ),
+        pr(
+            "d6",
+            723,
+            "Fix race condition in queue worker",
+            "acme/backend",
+            "demo-user",
+            Bucket::ReturnedToYou,
+            Some("SUCCESS"),
+            48,
+        ),
+        // Approved
+        pr(
+            "d7",
+            445,
+            "Add retry logic to webhook delivery",
+            "acme/backend",
+            "demo-user",
+            Bucket::Approved,
+            Some("SUCCESS"),
+            3,
+        ),
+        pr(
+            "d8",
+            112,
+            "Update onboarding flow copy",
+            "acme/web-app",
+            "demo-user",
+            Bucket::Approved,
+            Some("SUCCESS"),
+            6,
+        ),
+        // Waiting for Reviewers
+        pr(
+            "d9",
+            890,
+            "Implement rate limiting middleware",
+            "acme/backend",
+            "demo-user",
+            Bucket::WaitingForReviewers,
+            Some("SUCCESS"),
+            12,
+        ),
+        pr(
+            "d10",
+            334,
+            "Add E2E tests for checkout",
+            "acme/web-app",
+            "demo-user",
+            Bucket::WaitingForReviewers,
+            Some("PENDING"),
+            4,
+        ),
+        // Waiting for Author
+        pr(
+            "d11",
+            567,
+            "Add GraphQL subscriptions",
+            "acme/backend",
+            "mike-gql",
+            Bucket::WaitingForAuthor,
+            Some("SUCCESS"),
+            72,
+        ),
+        // CI Failing (Drafts bucket used as example)
+        pr(
+            "d12",
+            901,
+            "WIP: New dashboard layout",
+            "acme/web-app",
+            "demo-user",
+            Bucket::Drafts,
+            None,
+            168,
+        ),
+        // Recently Merged
+        pr(
+            "d13",
+            200,
+            "Fix memory leak in connection pool",
+            "acme/backend",
+            "demo-user",
+            Bucket::RecentlyMerged,
+            Some("SUCCESS"),
+            26,
+        ),
+        pr(
+            "d14",
+            88,
+            "Add Terraform module for Redis",
+            "acme/infra",
+            "demo-user",
+            Bucket::RecentlyMerged,
+            Some("SUCCESS"),
+            50,
+        ),
+    ]
+}
+
 // ── Loading indicator ────────────────────────────────────────────────────────
 
 fn set_loading(app: &AppHandle, loading: bool) {
@@ -438,6 +638,37 @@ fn set_loading(app: &AppHandle, loading: bool) {
 // ── Fetch + state ───────────────────────────────────────────────────────────
 
 fn do_fetch(app: &AppHandle) {
+    if is_demo() {
+        do_fetch_demo(app);
+    } else {
+        do_fetch_live(app);
+    }
+}
+
+fn do_fetch_demo(app: &AppHandle) {
+    let app_state = app.state::<GhTrayState>();
+    let config = app_state.config.lock().unwrap().clone();
+
+    let all_prs = demo_prs();
+    let filtered = github::filter_prs(all_prs.clone(), &config);
+
+    // Generate identicon avatars for all demo authors
+    let authors: Vec<String> = filtered
+        .iter()
+        .map(|pr| pr.author.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    github::ensure_demo_avatars(&authors);
+
+    *app_state.last_error.lock().unwrap() = None;
+    *app_state.all_prs.lock().unwrap() = all_prs;
+    *app_state.prs.lock().unwrap() = filtered.clone();
+
+    update_tray(app, &filtered, &config);
+}
+
+fn do_fetch_live(app: &AppHandle) {
     let app_state = app.state::<GhTrayState>();
 
     set_loading(app, true);
@@ -612,6 +843,9 @@ fn start_polling(app: AppHandle) {
 // ── Startup checks ──────────────────────────────────────────────────────────
 
 fn check_startup(app: &AppHandle) {
+    if is_demo() {
+        return;
+    }
     match github::check_gh_status() {
         GhStatus::Ok => {
             // All good — start silently
@@ -655,6 +889,10 @@ fn setup_tray(app: &AppHandle) {
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 pub fn run() {
+    if std::env::args().any(|a| a == "--demo") {
+        DEMO_MODE.store(true, Ordering::Relaxed);
+    }
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
