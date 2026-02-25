@@ -5,7 +5,7 @@ A lightweight, native macOS system tray app that keeps you informed about your G
 Think [Graphite Bar](https://graphite.dev), but open-source and powered by the GitHub CLI (`gh`).
 
 <!-- Screenshot of tray menu with PRs grouped by bucket -->
-![GH Tray in action](docs/images/screenshot-tray.png)
+![Main](https://github.com/user-attachments/assets/d94a2443-63e0-4212-8382-7c68fb88a536)
 
 ---
 
@@ -29,7 +29,9 @@ Think [Graphite Bar](https://graphite.dev), but open-source and powered by the G
 - **Lightweight** — small Rust binary, minimal resource usage.
 
 <!-- Screenshot of settings window with org/repo tree -->
-![Settings window](docs/images/screenshot-settings.png)
+https://github.com/user-attachments/assets/7ea98fbd-6dbf-4c4e-8dd8-43f9bcc8a9ac
+
+
 
 ---
 
