@@ -3,7 +3,7 @@ use chrono::{Duration, Utc};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use crate::config::AppConfig;
 use crate::models::*;
@@ -11,39 +11,62 @@ use crate::models::*;
 // ── gh CLI path resolution ─────────────────────────────────────────────────
 
 static GH_PATH: OnceLock<String> = OnceLock::new();
+static GH_PATH_OVERRIDE: Mutex<Option<String>> = Mutex::new(None);
 
-/// Resolve the full path to `gh` CLI. Searches common Homebrew/system paths
-/// since bundled macOS apps don't inherit the user's shell PATH.
-fn gh_bin() -> &'static str {
-    GH_PATH.get_or_init(|| {
-        let candidates = [
-            "/opt/homebrew/bin/gh",          // Apple Silicon Homebrew
-            "/usr/local/bin/gh",             // Intel Homebrew
-            "/usr/bin/gh",                   // System
-            "/run/current-system/sw/bin/gh", // NixOS
-        ];
+/// Auto-detect the gh CLI path by searching common locations.
+fn detect_gh_path() -> String {
+    let candidates = [
+        "/opt/homebrew/bin/gh",          // Apple Silicon Homebrew
+        "/usr/local/bin/gh",             // Intel Homebrew
+        "/usr/bin/gh",                   // System
+        "/run/current-system/sw/bin/gh", // NixOS
+    ];
 
-        // Try common known paths first
-        for path in &candidates {
-            if std::path::Path::new(path).exists() {
-                return path.to_string();
-            }
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return path.to_string();
         }
+    }
 
-        // Fallback: ask the user's login shell where gh lives
-        if let Ok(output) = Command::new("/bin/sh")
-            .args(["-l", "-c", "which gh"])
-            .output()
-        {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() && std::path::Path::new(&path).exists() {
-                return path;
-            }
+    if let Ok(output) = Command::new("/bin/sh")
+        .args(["-l", "-c", "which gh"])
+        .output()
+    {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() && std::path::Path::new(&path).exists() {
+            return path;
         }
+    }
 
-        // Last resort: hope it's in PATH
-        "gh".to_string()
-    })
+    "gh".to_string()
+}
+
+/// Resolve the path to `gh` CLI — uses user override if set, otherwise auto-detects.
+fn gh_bin() -> String {
+    if let Ok(guard) = GH_PATH_OVERRIDE.lock()
+        && let Some(ref path) = *guard
+        && !path.is_empty()
+    {
+        return path.clone();
+    }
+    GH_PATH.get_or_init(detect_gh_path).clone()
+}
+
+/// Set or clear a user-configured gh CLI path override.
+pub fn set_gh_cli_path(path: Option<String>) {
+    if let Ok(mut guard) = GH_PATH_OVERRIDE.lock() {
+        *guard = path;
+    }
+}
+
+/// Return the path currently being used for `gh` (override or auto-detected).
+pub fn resolved_gh_path() -> String {
+    gh_bin()
+}
+
+/// Return the auto-detected gh path (ignoring any user override).
+pub fn auto_detected_gh_path() -> String {
+    GH_PATH.get_or_init(detect_gh_path).clone()
 }
 
 // ── GraphQL query builder ───────────────────────────────────────────────────
@@ -110,12 +133,12 @@ pub fn check_gh_status() -> GhStatus {
             .unwrap_or(true)
     {
         // If gh_bin() fell back to "gh" and `which` can't find it
-        if Command::new(bin).arg("--version").output().is_err() {
+        if Command::new(&bin).arg("--version").output().is_err() {
             return GhStatus::NotInstalled;
         }
     }
 
-    match Command::new(bin).args(["auth", "status"]).output() {
+    match Command::new(&bin).args(["auth", "status"]).output() {
         Err(_) => GhStatus::NotInstalled,
         Ok(output) => {
             if output.status.success() {
@@ -305,11 +328,21 @@ pub fn categorize_all(data: &GqlData, viewer: &str) -> Vec<CategorizedPr> {
 // ── Filtering ───────────────────────────────────────────────────────────────
 
 pub fn filter_prs(prs: Vec<CategorizedPr>, config: &AppConfig) -> Vec<CategorizedPr> {
-    if config.blocked_repos.is_empty() {
-        return prs;
-    }
+    let max_age_cutoff = if config.max_pr_age_days > 0 {
+        Some(Utc::now() - Duration::days(config.max_pr_age_days as i64))
+    } else {
+        None
+    };
+
     prs.into_iter()
         .filter(|pr| config.is_repo_allowed(&pr.repo))
+        .filter(|pr| match max_age_cutoff {
+            Some(cutoff) => pr
+                .created_at
+                .map(|created| created >= cutoff)
+                .unwrap_or(true),
+            None => true,
+        })
         .collect()
 }
 

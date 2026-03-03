@@ -72,9 +72,12 @@ Open for next iteration — see Known Issues / Future Work below
 - [x] Public repo, LICENSE (MIT), README, CI/CD workflows
 - [x] GitHub Actions: ci.yml (fmt/clippy/check/test) + release.yml (macOS binaries)
 
+## v0.2.3 — Improvements
+- [x] Configurable max PR age — hide PRs older than X days (0 = no limit)
+- [x] Configurable gh CLI path — user can override auto-detected path in settings
+
 ## Known Issues / Future Work
 - Bot accounts (cursor, graphite-app) appear in `latestReviews` — need filtering strategy
-- Very old PRs (years) clutter results — consider staleness cutoff
 - `mergeable` field unreliable on first query (GitHub computes lazily)
 - Pagination beyond 50 PRs per bucket not yet implemented
 - Native menu lacks rich formatting (colors, custom layout) — webview popup is the path forward

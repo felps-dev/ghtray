@@ -99,12 +99,15 @@ struct GhStatusInfo {
 struct SettingsData {
     poll_interval_secs: u64,
     merged_window_days: i64,
+    max_pr_age_days: u64,
     notifications_enabled: bool,
     notification_sound: bool,
     autostart: bool,
     buckets: Vec<BucketEntry>,
     orgs: Vec<OrgEntry>,
     gh_status: GhStatusInfo,
+    gh_cli_path: String,
+    detected_gh_path: String,
 }
 
 #[tauri::command]
@@ -178,12 +181,15 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
     SettingsData {
         poll_interval_secs: config.poll_interval_secs,
         merged_window_days: config.merged_window_days,
+        max_pr_age_days: config.max_pr_age_days,
         notifications_enabled: config.notifications_enabled,
         notification_sound: config.notification_sound,
         autostart,
         buckets,
         orgs,
         gh_status,
+        gh_cli_path: config.gh_cli_path.clone(),
+        detected_gh_path: github::auto_detected_gh_path(),
     }
 }
 
@@ -218,6 +224,7 @@ fn check_gh(state: tauri::State<'_, GhTrayState>) -> GhStatusInfo {
 struct SaveSettingsPayload {
     poll_interval_secs: u64,
     merged_window_days: i64,
+    max_pr_age_days: u64,
     blocked_repos: Vec<String>,
     notifications_enabled: bool,
     notification_sound: bool,
@@ -225,6 +232,7 @@ struct SaveSettingsPayload {
     badge_buckets: Vec<String>,
     bucket_order: Vec<String>,
     autostart: bool,
+    gh_cli_path: String,
 }
 
 #[tauri::command]
@@ -236,12 +244,23 @@ fn save_settings(
     let mut config = state.config.lock().unwrap();
     config.poll_interval_secs = payload.poll_interval_secs.max(30);
     config.merged_window_days = payload.merged_window_days.max(1);
+    config.max_pr_age_days = payload.max_pr_age_days;
     config.blocked_repos = payload.blocked_repos.into_iter().collect();
     config.notifications_enabled = payload.notifications_enabled;
     config.notification_sound = payload.notification_sound;
     config.hidden_buckets = payload.hidden_buckets.into_iter().collect();
     config.badge_buckets = payload.badge_buckets.into_iter().collect();
     config.bucket_order = payload.bucket_order;
+    config.gh_cli_path = payload.gh_cli_path;
+
+    // Apply gh CLI path override
+    let gh_override = if config.gh_cli_path.is_empty() {
+        None
+    } else {
+        Some(config.gh_cli_path.clone())
+    };
+    github::set_gh_cli_path(gh_override);
+
     config.save().map_err(|e| e.to_string())?;
 
     // Update autostart
@@ -908,6 +927,15 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
+
+            // Apply custom gh CLI path from config before any gh calls
+            {
+                let state = app.state::<GhTrayState>();
+                let config = state.config.lock().unwrap();
+                if !config.gh_cli_path.is_empty() {
+                    github::set_gh_cli_path(Some(config.gh_cli_path.clone()));
+                }
             }
 
             setup_tray(app.handle());

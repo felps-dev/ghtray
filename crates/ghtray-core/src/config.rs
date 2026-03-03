@@ -29,6 +29,12 @@ pub struct AppConfig {
     /// Custom display order for buckets (list of bucket IDs)
     #[serde(default)]
     pub bucket_order: Vec<String>,
+    /// Max age in days for PRs to display (0 = no limit)
+    #[serde(default)]
+    pub max_pr_age_days: u64,
+    /// Custom path to gh CLI binary (empty = auto-detect)
+    #[serde(default)]
+    pub gh_cli_path: String,
 }
 
 fn default_true() -> bool {
@@ -53,6 +59,8 @@ impl Default for AppConfig {
             hidden_buckets: HashSet::new(),
             badge_buckets: default_badge_buckets(),
             bucket_order: Vec::new(),
+            max_pr_age_days: 0,
+            gh_cli_path: String::new(),
         }
     }
 }

@@ -62,6 +62,20 @@
 
     input[type="number"]:focus { border-color: var(--accent); }
 
+    input[type="text"] {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      flex: 1;
+    }
+
+    input[type="text"]:focus { border-color: var(--accent); }
+    input[type="text"]::placeholder { color: var(--text-dim); }
+
     .field-hint { font-size: 11px; color: var(--text-dim); }
 
     /* Status banner */
@@ -296,6 +310,15 @@
   <div id="gh-status"></div>
 
   <div class="section">
+    <div class="section-title">gh CLI</div>
+    <div class="field">
+      <label>Path</label>
+      <input type="text" id="gh-cli-path" placeholder="Auto-detect" />
+    </div>
+    <div class="field-hint">Detected: <span id="detected-gh-path" style="color: var(--text);"></span></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">General</div>
     <div class="field">
       <label class="toggle-label">
@@ -316,6 +339,11 @@
       <label>Merged window</label>
       <input type="number" id="merged-window" min="1" max="90" />
       <span class="field-hint">days</span>
+    </div>
+    <div class="field">
+      <label>Max PR age</label>
+      <input type="number" id="max-pr-age" min="0" max="365" />
+      <span class="field-hint">days (0 = no limit)</span>
     </div>
   </div>
 
@@ -369,6 +397,9 @@
       document.getElementById('autostart').checked = data.autostart;
       document.getElementById('poll-interval').value = data.poll_interval_secs;
       document.getElementById('merged-window').value = data.merged_window_days;
+      document.getElementById('max-pr-age').value = data.max_pr_age_days;
+      document.getElementById('gh-cli-path').value = data.gh_cli_path;
+      document.getElementById('detected-gh-path').textContent = data.detected_gh_path;
       document.getElementById('notifications-enabled').checked = data.notifications_enabled;
       document.getElementById('notification-sound').checked = data.notification_sound;
       orgs = data.orgs;
@@ -557,6 +588,7 @@
         payload: {
           poll_interval_secs: parseInt(document.getElementById('poll-interval').value) || 120,
           merged_window_days: parseInt(document.getElementById('merged-window').value) || 7,
+          max_pr_age_days: parseInt(document.getElementById('max-pr-age').value) || 0,
           blocked_repos: blocked,
           notifications_enabled: document.getElementById('notifications-enabled').checked,
           notification_sound: document.getElementById('notification-sound').checked,
@@ -564,6 +596,7 @@
           badge_buckets: badgeBuckets,
           bucket_order: bucketOrder,
           autostart: document.getElementById('autostart').checked,
+          gh_cli_path: document.getElementById('gh-cli-path').value.trim(),
         }
       });
 

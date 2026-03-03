@@ -60,6 +60,8 @@ target/debug/ghtray            # user runs manually to test
 | `hidden_buckets` | HashSet<String> | empty | Sections to hide from tray |
 | `badge_buckets` | HashSet<String> | needs_your_review, returned_to_you | Sections that count in badge |
 | `bucket_order` | Vec<String> | empty (uses default) | Custom section display order |
+| `max_pr_age_days` | u64 | 0 | Hide PRs older than X days (0 = no limit) |
+| `gh_cli_path` | String | empty | Custom path to gh binary (empty = auto-detect) |
 
 ## Project Structure
 ```
