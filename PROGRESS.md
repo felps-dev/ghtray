@@ -1,7 +1,7 @@
 # GH Tray — Progress
 
 ## Current Phase
-v0.2.1 — Released
+v0.3.0 — Released
 
 ## Next Step
 Open for next iteration — see Known Issues / Future Work below
@@ -72,7 +72,7 @@ Open for next iteration — see Known Issues / Future Work below
 - [x] Public repo, LICENSE (MIT), README, CI/CD workflows
 - [x] GitHub Actions: ci.yml (fmt/clippy/check/test) + release.yml (macOS binaries)
 
-## v0.2.3 — Improvements
+## v0.3.0 — Improvements
 - [x] Configurable max PR age — hide PRs older than X days (0 = no limit)
 - [x] Configurable gh CLI path — user can override auto-detected path in settings
 
