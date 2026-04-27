@@ -123,6 +123,18 @@ impl Bucket {
         }
     }
 
+    /// Notification title for entering this bucket, if any.
+    /// Used by the ledger-based notification check in `github::pending_notifications`.
+    pub fn notification_title(&self) -> Option<&'static str> {
+        match self {
+            Bucket::NeedsYourReview => Some("Review Requested"),
+            Bucket::ReturnedToYou => Some("Changes Requested"),
+            Bucket::Approved => Some("PR Approved"),
+            Bucket::RecentlyMerged => Some("PR Merged"),
+            _ => None,
+        }
+    }
+
     pub fn id(&self) -> &'static str {
         match self {
             Bucket::NeedsYourReview => "needs_your_review",
@@ -205,58 +217,15 @@ pub fn relative_time(dt: DateTime<Utc>) -> String {
     format!("{}y", days / 365)
 }
 
-// ── Transition events ───────────────────────────────────────────────────────
+// ── Notifications ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize)]
-pub enum Transition {
-    New { pr: CategorizedPr },
-    Moved { pr: CategorizedPr, from: Bucket },
-    Removed { pr: CategorizedPr },
+#[derive(Debug, Clone)]
+pub struct PendingNotification {
+    pub pr_id: String,
+    pub title: &'static str,
+    pub body: String,
 }
 
-impl Transition {
-    /// Returns (title, body) for a notification, or None if this transition is not notify-worthy.
-    pub fn notification_text(&self) -> Option<(&str, String)> {
-        match self {
-            Transition::New { pr } => match pr.bucket {
-                Bucket::NeedsYourReview => Some((
-                    "Review Requested",
-                    format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
-                )),
-                Bucket::ReturnedToYou => Some((
-                    "Changes Requested",
-                    format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
-                )),
-                Bucket::Approved => Some((
-                    "PR Approved",
-                    format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
-                )),
-                _ => None,
-            },
-            Transition::Moved { pr, from } => match (&from, &pr.bucket) {
-                (_, Bucket::NeedsYourReview) => Some((
-                    "Review Requested",
-                    format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
-                )),
-                (_, Bucket::ReturnedToYou) => Some((
-                    "Changes Requested",
-                    format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
-                )),
-                (_, Bucket::Approved) => Some((
-                    "PR Approved",
-                    format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
-                )),
-                (_, Bucket::RecentlyMerged) => Some((
-                    "PR Merged",
-                    format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
-                )),
-                _ => None,
-            },
-            Transition::Removed { .. } => None,
-        }
-    }
-}
-
-fn short_repo(repo: &str) -> &str {
+pub fn short_repo(repo: &str) -> &str {
     repo.split('/').next_back().unwrap_or(repo)
 }

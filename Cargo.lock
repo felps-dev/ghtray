@@ -1255,7 +1255,7 @@ dependencies = [
 
 [[package]]
 name = "ghtray"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "ghtray-core",
@@ -1271,7 +1271,7 @@ dependencies = [
 
 [[package]]
 name = "ghtray-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "chrono",

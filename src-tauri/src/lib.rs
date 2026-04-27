@@ -1,7 +1,7 @@
 use ghtray_core::config::AppConfig;
 use ghtray_core::github::{self, GhStatus};
 use ghtray_core::logging;
-use ghtray_core::models::{self, Bucket, CategorizedPr, Transition};
+use ghtray_core::models::{self, Bucket, CategorizedPr, PendingNotification};
 use ghtray_core::state;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -194,6 +194,13 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
 }
 
 #[tauri::command]
+fn hide_settings(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.hide();
+    }
+}
+
+#[tauri::command]
 fn check_gh(state: tauri::State<'_, GhTrayState>) -> GhStatusInfo {
     if is_demo() {
         return GhStatusInfo {
@@ -298,13 +305,17 @@ fn rebuild_tray_menu(
 
     let mut items: Vec<AnyItem> = Vec::new();
 
-    // Show error banner if present
+    // Show error banner if present — clickable so the user can open the
+    // log file and see the full message that didn't fit in the menu.
     let app_state = app.state::<GhTrayState>();
     if let Some(err) = app_state.last_error.lock().unwrap().as_ref() {
         items.push(AnyItem::Text(
-            MenuItemBuilder::with_id("error_msg", format!("⚠ {}", truncate(err, 50)))
-                .enabled(false)
-                .build(app)?,
+            MenuItemBuilder::with_id(
+                "action_view_log",
+                format!("⚠ {} — click for log", truncate(err, 60)),
+            )
+            .enabled(true)
+            .build(app)?,
         ));
         items.push(AnyItem::Sep(PredefinedMenuItem::separator(app)?));
     }
@@ -337,9 +348,9 @@ fn rebuild_tray_menu(
         items.push(AnyItem::Text(
             MenuItemBuilder::with_id(
                 format!("bucket_{}", bucket.id()),
-                format!("{} ({})", bucket.label(), bucket_prs.len()),
+                format!("{} ({}) — open all", bucket.label(), bucket_prs.len()),
             )
-            .enabled(false)
+            .enabled(true)
             .build(app)?,
         ));
 
@@ -433,24 +444,26 @@ fn rebuild_tray_menu(
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
-fn send_notifications(app: &AppHandle, transitions: &[Transition], config: &AppConfig) {
+fn send_notifications(app: &AppHandle, pending: &[PendingNotification], config: &AppConfig) {
     if !config.notifications_enabled {
         return;
     }
 
-    for transition in transitions {
-        if let Some((title, body)) = transition.notification_text() {
-            let builder = app.notification().builder().title(title).body(&body);
+    for note in pending {
+        let builder = app
+            .notification()
+            .builder()
+            .title(note.title)
+            .body(&note.body);
 
-            if config.notification_sound {
-                // Play macOS system sound via NSSound (notification plugin's sound
-                // support is unreliable). We fire the notification silently and play
-                // the sound ourselves.
-                play_system_sound();
-            }
-
-            let _ = builder.show();
+        if config.notification_sound {
+            // Play macOS system sound via NSSound (notification plugin's sound
+            // support is unreliable). We fire the notification silently and play
+            // the sound ourselves.
+            play_system_sound();
         }
+
+        let _ = builder.show();
     }
 }
 
@@ -729,21 +742,26 @@ fn do_fetch_live(app: &AppHandle) {
                 .collect();
             github::ensure_avatars(&authors);
 
-            let old_state = state::load_state();
-            let transitions = github::diff_states(&old_state.prs, &filtered);
+            let mut saved = state::load_state();
+            let needs_seed = !saved.notified_seeded;
 
-            if old_state.last_fetch.is_some() {
-                send_notifications(app, &transitions, &config);
+            // Ledger-based dedup: only re-notify on genuine state change
+            // (bucket or commit_sha differs from last notification we emitted).
+            // pending_notifications also seeds the ledger; we silently skip the
+            // emit on first run / upgrade so users don't get a flood of
+            // notifications for PRs that were already on screen.
+            let pending = github::pending_notifications(&filtered, &mut saved.notified);
+            state::trim_notified(&mut saved.notified);
+            if !needs_seed {
+                send_notifications(app, &pending, &config);
             }
 
-            let new_state = state::AppState {
-                last_fetch: Some(chrono::Utc::now()),
-                prs: filtered
-                    .iter()
-                    .map(|pr| (pr.id.clone(), pr.clone()))
-                    .collect(),
-            };
-            let _ = state::save_state(&new_state);
+            // Persist unfiltered all_prs so we can restore the tray on the
+            // next launch even if the first fetch fails.
+            saved.last_fetch = Some(chrono::Utc::now());
+            saved.all_prs = all_prs.clone();
+            saved.notified_seeded = true;
+            let _ = state::save_state(&saved);
 
             *app_state.all_prs.lock().unwrap() = all_prs;
             *app_state.prs.lock().unwrap() = filtered.clone();
@@ -787,15 +805,17 @@ fn update_tray(app: &AppHandle, prs: &[CategorizedPr], config: &AppConfig) {
         };
         let _ = tray.set_title(Some(&title));
 
+        let error_ref = state.last_error.lock().unwrap();
         let tooltip = if is_gh_error {
             "GH Tray — gh CLI error (check settings)".to_string()
-        } else if has_error {
-            "GH Tray — Error (check settings)".to_string()
+        } else if let Some(msg) = error_ref.as_ref() {
+            format!("GH Tray — {}", truncate(msg, 200))
         } else if count > 0 {
             format!("GH Tray — {count} action item(s)")
         } else {
             "GH Tray — All clear".to_string()
         };
+        drop(error_ref);
         let _ = tray.set_tooltip(Some(&tooltip));
     }
 
@@ -812,6 +832,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             std::thread::spawn(move || do_fetch(&app_clone));
         }
         "action_settings" => open_settings(app),
+        "action_view_log" => {
+            let path = ghtray_core::state::data_dir().join("ghtray.log");
+            let _ = tauri_plugin_opener::open_path(path, None::<&str>);
+        }
         _ => {
             if let Some(pr_id) = id.strip_prefix("pr_") {
                 let state = app.state::<GhTrayState>();
@@ -819,6 +843,21 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 if let Some(pr) = prs.iter().find(|p| p.id == pr_id) {
                     let url = pr.url.clone();
                     drop(prs);
+                    let _ = tauri_plugin_opener::open_url(&url, None::<&str>);
+                }
+            } else if let Some(bucket_id) = id.strip_prefix("bucket_") {
+                let Some(bucket) = Bucket::from_id(bucket_id) else {
+                    return;
+                };
+                let state = app.state::<GhTrayState>();
+                let prs = state.prs.lock().unwrap();
+                let urls: Vec<String> = prs
+                    .iter()
+                    .filter(|pr| pr.bucket == bucket)
+                    .map(|pr| pr.url.clone())
+                    .collect();
+                drop(prs);
+                for url in urls {
                     let _ = tauri_plugin_opener::open_url(&url, None::<&str>);
                 }
             }
@@ -857,6 +896,35 @@ fn start_polling(app: AppHandle) {
             do_fetch(&app);
         }
     });
+}
+
+// ── Startup cache restore ───────────────────────────────────────────────────
+
+/// Load the last persisted `all_prs` into in-memory state and render the tray
+/// immediately. This way the user sees their last-known PRs before the first
+/// live fetch — and survives a failed first fetch on a flaky network.
+fn restore_cached_prs(app: &AppHandle) {
+    let saved = state::load_state();
+    if saved.all_prs.is_empty() {
+        return;
+    }
+
+    let app_state = app.state::<GhTrayState>();
+    let config = app_state.config.lock().unwrap().clone();
+    let filtered = github::filter_prs(saved.all_prs.clone(), &config);
+
+    let authors: Vec<String> = filtered
+        .iter()
+        .map(|pr| pr.author.clone())
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    github::ensure_avatars(&authors);
+
+    *app_state.all_prs.lock().unwrap() = saved.all_prs;
+    *app_state.prs.lock().unwrap() = filtered.clone();
+
+    update_tray(app, &filtered, &config);
 }
 
 // ── Startup checks ──────────────────────────────────────────────────────────
@@ -921,7 +989,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             save_settings,
-            check_gh
+            check_gh,
+            hide_settings
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -939,6 +1008,7 @@ pub fn run() {
             }
 
             setup_tray(app.handle());
+            restore_cached_prs(app.handle());
             check_startup(app.handle());
             start_polling(app.handle().clone());
             Ok(())

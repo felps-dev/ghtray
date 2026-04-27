@@ -386,7 +386,6 @@
 
   <script>
     const { invoke } = window.__TAURI__.core;
-    const { getCurrentWindow } = window.__TAURI__.window;
 
     let orgs = [];
     let buckets = [];
@@ -606,7 +605,7 @@
     }
 
     function cancel() {
-      getCurrentWindow().hide();
+      invoke('hide_settings');
     }
 
     function esc(str) {

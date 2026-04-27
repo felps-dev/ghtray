@@ -1,10 +1,10 @@
 # GH Tray — Progress
 
 ## Current Phase
-v0.3.0 — Released
+v0.4.0 — In progress (resilience + UX)
 
 ## Next Step
-Open for next iteration — see Known Issues / Future Work below
+Test on real account, then bump version + release
 
 ## Phase 1: Data Exploration — COMPLETE
 - [x] All tasks complete. See `docs/phase1-data-exploration.md`
@@ -75,6 +75,17 @@ Open for next iteration — see Known Issues / Future Work below
 ## v0.3.0 — Improvements
 - [x] Configurable max PR age — hide PRs older than X days (0 = no limit)
 - [x] Configurable gh CLI path — user can override auto-detected path in settings
+
+## v0.4.0 — Resilience & UX
+- [x] Persist `all_prs` to state file; restore into tray at startup so cached PRs show even if first fetch fails
+- [x] Persistent notification ledger keyed on `(bucket, commit_sha)`; only updated when a notification fires. Fixes the GitHub-outage repeat-notify bug — flickering data (partial GraphQL responses, transient null `reviewDecision`) no longer causes "PR Approved" to fire on every successful fetch
+- [x] `notified_seeded` flag silences first-fetch / upgrade-time notification flood
+- [x] LRU cap on the notified ledger (1000 entries, oldest by `recorded_at` evicted)
+- [x] Detect `errors[]` in GraphQL JSON response — surfaces partial-failure messages that previously slipped through serde
+- [x] Tray menu error banner is clickable → opens `ghtray.log`
+- [x] Tray tooltip shows actual error text (not generic "Error (check settings)")
+- [x] Bucket section headers are clickable → opens every PR in that bucket in the browser
+- [x] Settings Cancel button now uses backend `hide_settings` command (JS `getCurrentWindow().hide()` was failing silently)
 
 ## Known Issues / Future Work
 - Bot accounts (cursor, graphite-app) appear in `latestReviews` — need filtering strategy

@@ -7,6 +7,7 @@ use std::sync::{Mutex, OnceLock};
 
 use crate::config::AppConfig;
 use crate::models::*;
+use crate::state::NotificationKey;
 
 // ── gh CLI path resolution ─────────────────────────────────────────────────
 
@@ -199,6 +200,30 @@ pub fn fetch_prs(merged_days: i64) -> Result<GqlResponse> {
             bail!("gh CLI is not authenticated. Run `gh auth login` first.");
         }
         bail!("gh api graphql failed: {}", stderr.trim());
+    }
+
+    // GitHub returns 200 OK with `{"errors":[...]}` for partial failures
+    // (rate limit, schema problems, transient outages). serde would happily
+    // parse a missing `data` field as a deserialization error with no detail —
+    // surface the GraphQL messages explicitly first.
+    if let Ok(raw) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
+        && let Some(errors) = raw.get("errors").and_then(|e| e.as_array())
+        && !errors.is_empty()
+    {
+        let messages: Vec<String> = errors
+            .iter()
+            .filter_map(|e| {
+                e.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect();
+        let joined = if messages.is_empty() {
+            errors.len().to_string() + " unknown error(s)"
+        } else {
+            messages.join("; ")
+        };
+        bail!("GitHub GraphQL error: {joined}");
     }
 
     let response: GqlResponse =
@@ -582,34 +607,50 @@ pub fn avatar_path(author: &str) -> Option<std::path::PathBuf> {
     }
 }
 
-// ── State diffing ───────────────────────────────────────────────────────────
+// ── Notification dedup against persistent ledger ────────────────────────────
 
-pub fn diff_states(
-    old_prs: &HashMap<String, CategorizedPr>,
-    new_prs: &[CategorizedPr],
-) -> Vec<Transition> {
-    let mut transitions = Vec::new();
-    let new_map: HashMap<&str, &CategorizedPr> =
-        new_prs.iter().map(|pr| (pr.id.as_str(), pr)).collect();
+/// Compare each PR against the persistent `notified` ledger and return the
+/// notifications that should fire on this fetch. Mutates the ledger in place
+/// so callers can persist it after sending.
+///
+/// A notification is emitted iff the PR's current bucket has a notification
+/// title AND the (bucket, last_commit_sha) pair differs from the saved ledger
+/// entry. The ledger is updated only when a notification is emitted, which
+/// makes the system robust to transient/flickering data (partial GraphQL
+/// responses, null reviewDecision) — those cause the bucket to dip into a
+/// non-notifiable state momentarily, but the ledger remembers the last
+/// notified state so we don't re-fire when it bounces back.
+pub fn pending_notifications(
+    prs: &[CategorizedPr],
+    notified: &mut HashMap<String, NotificationKey>,
+) -> Vec<PendingNotification> {
+    let now = Utc::now();
+    let mut out = Vec::new();
 
-    for pr in new_prs {
-        match old_prs.get(&pr.id) {
-            None => transitions.push(Transition::New { pr: pr.clone() }),
-            Some(old_pr) if old_pr.bucket != pr.bucket => {
-                transitions.push(Transition::Moved {
-                    pr: pr.clone(),
-                    from: old_pr.bucket,
-                });
-            }
-            _ => {}
+    for pr in prs {
+        let Some(title) = pr.bucket.notification_title() else {
+            continue;
+        };
+        let same = notified
+            .get(&pr.id)
+            .is_some_and(|key| key.bucket == pr.bucket && key.commit_sha == pr.last_commit_sha);
+        if same {
+            continue;
         }
+        out.push(PendingNotification {
+            pr_id: pr.id.clone(),
+            title,
+            body: format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
+        });
+        notified.insert(
+            pr.id.clone(),
+            NotificationKey {
+                bucket: pr.bucket,
+                commit_sha: pr.last_commit_sha.clone(),
+                recorded_at: Some(now),
+            },
+        );
     }
 
-    for (id, old_pr) in old_prs {
-        if !new_map.contains_key(id.as_str()) {
-            transitions.push(Transition::Removed { pr: old_pr.clone() });
-        }
-    }
-
-    transitions
+    out
 }
