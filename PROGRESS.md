@@ -1,10 +1,10 @@
 # GH Tray — Progress
 
 ## Current Phase
-v0.4.0 — In progress (resilience + UX)
+v0.5.0 — In progress (notification fine-tuning + settings redesign)
 
 ## Next Step
-Test on real account, then bump version + release
+Test on real account: custom sound preview, per-event triggers, per-bucket sort, "🔔" indicator. Then bump version + release.
 
 ## Phase 1: Data Exploration — COMPLETE
 - [x] All tasks complete. See `docs/phase1-data-exploration.md`
@@ -86,6 +86,18 @@ Test on real account, then bump version + release
 - [x] Tray tooltip shows actual error text (not generic "Error (check settings)")
 - [x] Bucket section headers are clickable → opens every PR in that bucket in the browser
 - [x] Settings Cancel button now uses backend `hide_settings` command (JS `getCurrentWindow().hide()` was failing silently)
+
+## v0.5.0 — Notifications & Settings UX
+- [x] Custom notification sound — pick any macOS system sound (Glass, Pop, Tink, Bottle, Frog, Funk, Hero, Morse, Ping, Purr, Sosumi, Submarine) or a custom file path. `Preview` button plays via `afplay`. New `preview_sound` Tauri command, `notification_sound_path` in config.
+- [x] Per-event notification & sound toggles — `notify_buckets` + `sound_buckets` HashSets in config. Master toggles still gate everything; the matrix lets a user e.g. silence the "Approved" sound while keeping the popup. Filtering happens in `send_notifications`, not `pending_notifications`, so the dedup ledger stays consistent across toggle changes.
+- [x] Last-notified indicator per PR row — `NotificationKey` gained a `notified_at` field (separate from `recorded_at`, which keeps its LRU role). Set only when a desktop notification actually fires. `CategorizedPr` carries `last_notified_at` populated by `enrich_with_notified` after each fetch and on startup restore. Renders as ` · 🔔 5m` suffix on the tray row.
+- [x] Per-bucket sort — `bucket_sort: HashMap<String, String>` in config. Sort keys: `updated_desc/asc`, `notified_desc/asc`, `created_desc/asc`, `number_desc/asc`. `None` values sink regardless of direction. New `github::sort_prs` helper replaces the hardcoded `updated_at`-desc sort in `rebuild_tray_menu`.
+- [x] Settings webview redesign — sidebar nav (General / Polling / Notifications / Sections / Repositories / About), 780×640 window. Refined dark palette, monospace numeric nav labels, terminal-style section slugs. Bucket rows in `Sections` gain a sort dropdown next to visibility + badge. Notifications tab hosts master toggles, sound picker + custom path + Preview, and a per-event Notify/Sound matrix limited to notifiable buckets (`Bucket::notification_title().is_some()`).
+
+### Architecture Decisions
+- **Stayed on text-only menu items** — Tauri's safe API exposes `MenuItem`/`IconMenuItem`/`PredefinedMenuItem`/`Submenu`/`CheckMenuItem` with text, icon, accelerator, and check state. No `attributedTitle`, `NSMenuItem.view`, or tooltip pass-through. Going AppKit-direct via `objc2` for one timestamp per row would mean rewriting tray construction in `unsafe` — bad ROI. The "🔔 5m" suffix lives inside the existing label string.
+- **Two-timestamp ledger** — `recorded_at` (always bumped on bucket transition, used for LRU + dedup) and `notified_at` (only bumped when a real notification fires). Lets muted-bucket transitions stay tracked for dedup without polluting the "last notified" display.
+- **`PendingNotification.bucket`** added so `send_notifications` can apply the per-bucket gate without re-deriving from the title string.
 
 ## Known Issues / Future Work
 - Bot accounts (cursor, graphite-app) appear in `latestReviews` — need filtering strategy

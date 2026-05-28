@@ -22,9 +22,13 @@ Think [Graphite Bar](https://graphite.dev), but open-source and powered by the G
   - Drafts
 - **Round author avatars** in the tray menu for quick identification.
 - **Native notifications** when PR states change (new review requests, approvals, CI failures).
-- **Configurable polling** — set your own interval (default: 60s).
+- **Fine-grained notification control** — pick exactly which events fire a notification and which ones play a sound, independently. Master toggles still act as kill-switches.
+- **Custom notification sound** — choose any built-in macOS system sound (Glass, Pop, Tink, Bottle, Frog, Funk, Hero, Morse, Ping, Purr, Sosumi, Submarine) or point at your own `.aiff` / `.wav` file. Preview button included.
+- **Last-notified indicator** — each PR row in the tray shows when you were last pinged about it (e.g. `🔔 5m`), so you know whether something has been sitting unread.
+- **Per-bucket sort order** — sort each section independently by Updated, Last Notified, Created, or PR number, ascending or descending.
+- **Configurable polling** — set your own interval (default: 120s, minimum 30s).
 - **Repo filtering** — block-list repos you don't care about via a settings UI with org/repo tree.
-- **Bucket visibility** — hide sections you don't need.
+- **Bucket visibility, order, and badge contribution** — show/hide sections, drag to reorder, and pick which sections count toward the tray badge.
 - **Launch at login** — starts silently in the background.
 - **Lightweight** — small Rust binary, minimal resource usage.
 
@@ -114,12 +118,14 @@ GH Tray will detect if `gh` is missing or unauthenticated and guide you through 
 
 ### Settings
 
-Access settings from the tray menu. You can configure:
+Access settings from the tray menu. The window is organized into tabs:
 
-- **Poll interval** — how often to check GitHub (default: 60 seconds)
-- **Blocked repos** — toggle off repos/orgs you want to ignore
-- **Hidden buckets** — hide PR categories you don't care about
-- **Launch at login** — start GH Tray automatically on boot
+- **General** — auto-start, custom `gh` CLI path (auto-detected by default)
+- **Polling** — interval (default: 120s, min 30s), merged PR window, max PR age cutoff
+- **Notifications** — master toggles, sound picker with Preview, and a per-event matrix letting you choose which transitions ring and which play a sound
+- **Sections** — visibility, drag-to-reorder, per-bucket sort key, and which sections count in the tray badge
+- **Repositories** — org/repo block-list (new repos surface automatically)
+- **About** — version, log file, source link
 
 ---
 

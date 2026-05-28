@@ -275,6 +275,7 @@ fn make_pr(pr: &PullRequest, bucket: Bucket) -> CategorizedPr {
         last_commit_sha: sha,
         last_commit_date: date,
         ci_status: ci,
+        last_notified_at: None,
     }
 }
 
@@ -343,6 +344,7 @@ pub fn categorize_all(data: &GqlData, viewer: &str) -> Vec<CategorizedPr> {
                 last_commit_sha: None,
                 last_commit_date: pr.merged_at,
                 ci_status: None,
+                last_notified_at: None,
             });
         }
     }
@@ -607,6 +609,74 @@ pub fn avatar_path(author: &str) -> Option<std::path::PathBuf> {
     }
 }
 
+// ── Sorting ─────────────────────────────────────────────────────────────────
+
+/// Sort a slice of PR references by the given sort key. Unknown keys fall
+/// back to the default (updated_desc). `None` values sink to the bottom
+/// regardless of direction so a PR with the missing field never displaces
+/// a PR with real data.
+pub fn sort_prs(prs: &mut [&CategorizedPr], key: &str) {
+    use chrono::{DateTime, Utc};
+    use std::cmp::Ordering;
+
+    fn cmp_opt_date(a: Option<DateTime<Utc>>, b: Option<DateTime<Utc>>, desc: bool) -> Ordering {
+        match (a, b) {
+            (Some(x), Some(y)) => {
+                if desc {
+                    y.cmp(&x)
+                } else {
+                    x.cmp(&y)
+                }
+            }
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        }
+    }
+
+    match key {
+        "updated_asc" => prs.sort_by(|a, b| {
+            cmp_opt_date(
+                a.updated_at.or(a.created_at),
+                b.updated_at.or(b.created_at),
+                false,
+            )
+        }),
+        "notified_desc" => {
+            prs.sort_by(|a, b| cmp_opt_date(a.last_notified_at, b.last_notified_at, true))
+        }
+        "notified_asc" => {
+            prs.sort_by(|a, b| cmp_opt_date(a.last_notified_at, b.last_notified_at, false))
+        }
+        "created_desc" => prs.sort_by(|a, b| cmp_opt_date(a.created_at, b.created_at, true)),
+        "created_asc" => prs.sort_by(|a, b| cmp_opt_date(a.created_at, b.created_at, false)),
+        "number_desc" => prs.sort_by(|a, b| b.number.cmp(&a.number)),
+        "number_asc" => prs.sort_by(|a, b| a.number.cmp(&b.number)),
+        // "updated_desc" or anything unknown
+        _ => prs.sort_by(|a, b| {
+            cmp_opt_date(
+                a.updated_at.or(a.created_at),
+                b.updated_at.or(b.created_at),
+                true,
+            )
+        }),
+    }
+}
+
+// ── Enrichment from notification ledger ─────────────────────────────────────
+
+/// Copy `notified_at` from the persistent ledger into each PR's
+/// `last_notified_at` field so the tray menu can render a freshness
+/// indicator without re-reading state on each menu rebuild.
+pub fn enrich_with_notified(
+    prs: &mut [CategorizedPr],
+    notified: &HashMap<String, NotificationKey>,
+) {
+    for pr in prs {
+        pr.last_notified_at = notified.get(&pr.id).and_then(|key| key.notified_at);
+    }
+}
+
 // ── Notification dedup against persistent ledger ────────────────────────────
 
 /// Compare each PR against the persistent `notified` ledger and return the
@@ -639,15 +709,21 @@ pub fn pending_notifications(
         }
         out.push(PendingNotification {
             pr_id: pr.id.clone(),
+            bucket: pr.bucket,
             title,
             body: format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
         });
+        // Preserve prior `notified_at` — it represents the last actual
+        // desktop notification that fired. Only `recorded_at` (used for
+        // dedup + LRU) bumps when a new transition is recorded.
+        let prev_notified_at = notified.get(&pr.id).and_then(|k| k.notified_at);
         notified.insert(
             pr.id.clone(),
             NotificationKey {
                 bucket: pr.bucket,
                 commit_sha: pr.last_commit_sha.clone(),
                 recorded_at: Some(now),
+                notified_at: prev_notified_at,
             },
         );
     }

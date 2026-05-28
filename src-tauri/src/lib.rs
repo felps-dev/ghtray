@@ -2,8 +2,9 @@ use ghtray_core::config::AppConfig;
 use ghtray_core::github::{self, GhStatus};
 use ghtray_core::logging;
 use ghtray_core::models::{self, Bucket, CategorizedPr, PendingNotification};
-use ghtray_core::state;
+use ghtray_core::state::{self, NotificationKey};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -87,6 +88,13 @@ struct BucketEntry {
     label: String,
     visible: bool,
     badge: bool,
+    sort: String,
+    /// True when this bucket has a notification title — i.e. it's one of
+    /// the buckets that can fire desktop notifications. The settings UI
+    /// uses this to scope the per-event notify/sound matrix.
+    notifiable: bool,
+    notify: bool,
+    sound: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,12 +110,14 @@ struct SettingsData {
     max_pr_age_days: u64,
     notifications_enabled: bool,
     notification_sound: bool,
+    notification_sound_path: String,
     autostart: bool,
     buckets: Vec<BucketEntry>,
     orgs: Vec<OrgEntry>,
     gh_status: GhStatusInfo,
     gh_cli_path: String,
     detected_gh_path: String,
+    app_version: String,
 }
 
 #[tauri::command]
@@ -146,11 +156,18 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
     let buckets: Vec<BucketEntry> = config
         .ordered_buckets()
         .iter()
-        .map(|b| BucketEntry {
-            id: b.id().to_string(),
-            label: b.label().to_string(),
-            visible: config.is_bucket_visible(b.id()),
-            badge: config.counts_for_badge(b.id()),
+        .map(|b| {
+            let id = b.id();
+            BucketEntry {
+                id: id.to_string(),
+                label: b.label().to_string(),
+                visible: config.is_bucket_visible(id),
+                badge: config.counts_for_badge(id),
+                sort: config.sort_for_bucket(id).to_string(),
+                notifiable: b.notification_title().is_some(),
+                notify: config.notify_buckets.contains(id),
+                sound: config.sound_buckets.contains(id),
+            }
         })
         .collect();
 
@@ -184,13 +201,26 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
         max_pr_age_days: config.max_pr_age_days,
         notifications_enabled: config.notifications_enabled,
         notification_sound: config.notification_sound,
+        notification_sound_path: config.notification_sound_path.clone(),
         autostart,
         buckets,
         orgs,
         gh_status,
         gh_cli_path: config.gh_cli_path.clone(),
         detected_gh_path: github::auto_detected_gh_path(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+#[tauri::command]
+fn preview_sound(spec: String) {
+    play_system_sound(&spec);
+}
+
+#[tauri::command]
+fn open_log() {
+    let path = ghtray_core::state::data_dir().join("ghtray.log");
+    let _ = tauri_plugin_opener::open_path(path, None::<&str>);
 }
 
 #[tauri::command]
@@ -235,9 +265,13 @@ struct SaveSettingsPayload {
     blocked_repos: Vec<String>,
     notifications_enabled: bool,
     notification_sound: bool,
+    notification_sound_path: String,
     hidden_buckets: Vec<String>,
     badge_buckets: Vec<String>,
     bucket_order: Vec<String>,
+    notify_buckets: Vec<String>,
+    sound_buckets: Vec<String>,
+    bucket_sort: HashMap<String, String>,
     autostart: bool,
     gh_cli_path: String,
 }
@@ -255,9 +289,13 @@ fn save_settings(
     config.blocked_repos = payload.blocked_repos.into_iter().collect();
     config.notifications_enabled = payload.notifications_enabled;
     config.notification_sound = payload.notification_sound;
+    config.notification_sound_path = payload.notification_sound_path;
     config.hidden_buckets = payload.hidden_buckets.into_iter().collect();
     config.badge_buckets = payload.badge_buckets.into_iter().collect();
     config.bucket_order = payload.bucket_order;
+    config.notify_buckets = payload.notify_buckets.into_iter().collect();
+    config.sound_buckets = payload.sound_buckets.into_iter().collect();
+    config.bucket_sort = payload.bucket_sort;
     config.gh_cli_path = payload.gh_cli_path;
 
     // Apply gh CLI path override
@@ -333,12 +371,7 @@ fn rebuild_tray_menu(
             continue;
         }
 
-        // Sort by most recently updated first
-        bucket_prs.sort_by(|a, b| {
-            let a_time = a.updated_at.or(a.created_at);
-            let b_time = b.updated_at.or(b.created_at);
-            b_time.cmp(&a_time)
-        });
+        github::sort_prs(&mut bucket_prs, config.sort_for_bucket(bucket.id()));
 
         if has_buckets {
             items.push(AnyItem::Sep(PredefinedMenuItem::separator(app)?));
@@ -363,14 +396,21 @@ fn rebuild_tray_menu(
             } else {
                 format!(" · {age}")
             };
+            // Last-notified indicator — populated from the persistent ledger
+            // only when a desktop notification actually fired for this PR.
+            let notified_suffix = pr
+                .last_notified_at
+                .map(|t| format!(" · 🔔 {}", models::relative_time(t)))
+                .unwrap_or_default();
 
             let label = format!(
-                "  #{} {}{} ({}){}",
+                "  #{} {}{} ({}){}{}",
                 pr.number,
                 truncate(&pr.title, 36),
                 ci,
                 repo_short,
-                age_suffix
+                age_suffix,
+                notified_suffix
             );
 
             if let Some(avatar_path) = github::avatar_path(&pr.author)
@@ -444,35 +484,68 @@ fn rebuild_tray_menu(
 
 // ── Notifications ────────────────────────────────────────────────────────────
 
-fn send_notifications(app: &AppHandle, pending: &[PendingNotification], config: &AppConfig) {
+fn send_notifications(
+    app: &AppHandle,
+    pending: &[PendingNotification],
+    config: &AppConfig,
+    notified: &mut HashMap<String, NotificationKey>,
+) {
     if !config.notifications_enabled {
         return;
     }
 
+    let now = chrono::Utc::now();
+
     for note in pending {
+        // Per-bucket gate: master toggle already passed above, but a bucket
+        // can be individually muted in settings.
+        if !config.notify_for_bucket(note.bucket.id()) {
+            continue;
+        }
+
         let builder = app
             .notification()
             .builder()
             .title(note.title)
             .body(&note.body);
 
-        if config.notification_sound {
-            // Play macOS system sound via NSSound (notification plugin's sound
-            // support is unreliable). We fire the notification silently and play
-            // the sound ourselves.
-            play_system_sound();
+        if config.sound_for_bucket(note.bucket.id()) {
+            // tauri-plugin-notification's .sound() is unreliable on macOS,
+            // so we fire the notification silently and play the sound ourselves.
+            play_system_sound(&config.notification_sound_path);
         }
 
         let _ = builder.show();
+
+        // Stamp the ledger entry now that a real notification was emitted.
+        // This drives the "🔔 5m" indicator next to each PR row.
+        if let Some(entry) = notified.get_mut(&note.pr_id) {
+            entry.notified_at = Some(now);
+        }
     }
 }
 
-/// Play the macOS default notification sound (Glass) via system command.
-fn play_system_sound() {
-    std::thread::spawn(|| {
-        let _ = std::process::Command::new("afplay")
-            .arg("/System/Library/Sounds/Glass.aiff")
-            .spawn();
+/// Resolve a notification sound spec into an absolute filesystem path:
+/// - empty → default Glass.aiff
+/// - bare name (no `/`) → /System/Library/Sounds/{spec}.aiff
+/// - contains `/` → used as-is
+fn resolve_sound_path(spec: &str) -> String {
+    let trimmed = spec.trim();
+    if trimmed.is_empty() {
+        return "/System/Library/Sounds/Glass.aiff".to_string();
+    }
+    if trimmed.contains('/') {
+        return trimmed.to_string();
+    }
+    format!("/System/Library/Sounds/{trimmed}.aiff")
+}
+
+/// Play a notification sound via `afplay`. `spec` accepts a macOS system
+/// sound name (e.g. "Glass", "Pop") or an absolute path.
+fn play_system_sound(spec: &str) {
+    let path = resolve_sound_path(spec);
+    std::thread::spawn(move || {
+        let _ = std::process::Command::new("afplay").arg(path).spawn();
     });
 }
 
@@ -503,6 +576,7 @@ fn demo_prs() -> Vec<CategorizedPr> {
         last_commit_sha: Some(format!("abc{id}")),
         last_commit_date: Some(now - Duration::hours(hours_ago / 2)),
         ci_status: ci.map(String::from),
+        last_notified_at: Some(now - Duration::minutes(hours_ago * 15)),
     };
 
     vec![
@@ -731,8 +805,8 @@ fn do_fetch_live(app: &AppHandle) {
             // Clear any previous error
             *app_state.last_error.lock().unwrap() = None;
 
-            let all_prs = github::categorize_all(&response.data, &viewer_login);
-            let filtered = github::filter_prs(all_prs.clone(), &config);
+            let mut all_prs = github::categorize_all(&response.data, &viewer_login);
+            let mut filtered = github::filter_prs(all_prs.clone(), &config);
 
             let authors: Vec<String> = filtered
                 .iter()
@@ -753,8 +827,13 @@ fn do_fetch_live(app: &AppHandle) {
             let pending = github::pending_notifications(&filtered, &mut saved.notified);
             state::trim_notified(&mut saved.notified);
             if !needs_seed {
-                send_notifications(app, &pending, &config);
+                send_notifications(app, &pending, &config, &mut saved.notified);
             }
+
+            // Copy fresh notified_at timestamps from the ledger onto each PR
+            // so the tray row can render "🔔 5m" without re-reading state.
+            github::enrich_with_notified(&mut all_prs, &saved.notified);
+            github::enrich_with_notified(&mut filtered, &saved.notified);
 
             // Persist unfiltered all_prs so we can restore the tray on the
             // next launch even if the first fetch fails.
@@ -874,7 +953,7 @@ fn open_settings(app: &AppHandle) {
 
     let _ = WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings.html".into()))
         .title("GH Tray Settings")
-        .inner_size(440.0, 720.0)
+        .inner_size(780.0, 640.0)
         .resizable(false)
         .disable_drag_drop_handler() // Allow HTML5 drag-and-drop in the webview
         .build();
@@ -911,7 +990,13 @@ fn restore_cached_prs(app: &AppHandle) {
 
     let app_state = app.state::<GhTrayState>();
     let config = app_state.config.lock().unwrap().clone();
-    let filtered = github::filter_prs(saved.all_prs.clone(), &config);
+    let mut all_prs = saved.all_prs;
+    // Restore the "🔔 ..." indicator immediately on startup from the
+    // persisted ledger so the cached tray rows look identical to the
+    // live ones, rather than blanking until the first refresh fires.
+    github::enrich_with_notified(&mut all_prs, &saved.notified);
+    let mut filtered = github::filter_prs(all_prs.clone(), &config);
+    github::enrich_with_notified(&mut filtered, &saved.notified);
 
     let authors: Vec<String> = filtered
         .iter()
@@ -921,7 +1006,7 @@ fn restore_cached_prs(app: &AppHandle) {
         .collect();
     github::ensure_avatars(&authors);
 
-    *app_state.all_prs.lock().unwrap() = saved.all_prs;
+    *app_state.all_prs.lock().unwrap() = all_prs;
     *app_state.prs.lock().unwrap() = filtered.clone();
 
     update_tray(app, &filtered, &config);
@@ -990,7 +1075,9 @@ pub fn run() {
             get_settings,
             save_settings,
             check_gh,
-            hide_settings
+            hide_settings,
+            preview_sound,
+            open_log
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

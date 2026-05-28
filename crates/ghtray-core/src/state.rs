@@ -14,8 +14,16 @@ pub struct NotificationKey {
     pub bucket: Bucket,
     pub commit_sha: Option<String>,
     /// Wall-clock time the entry was last written — used for LRU eviction.
+    /// Bumped every time `pending_notifications` records a transition,
+    /// even if the user has the bucket muted.
     #[serde(default)]
     pub recorded_at: Option<DateTime<Utc>>,
+    /// Wall-clock time the most recent desktop notification actually fired
+    /// for this PR. Set only inside `send_notifications` when the bucket is
+    /// in the user's `notify_buckets`, so muted buckets stay `None`.
+    /// Displayed on the tray row as the "🔔 5m" indicator.
+    #[serde(default)]
+    pub notified_at: Option<DateTime<Utc>>,
 }
 
 /// Soft cap on the notified ledger; older entries are evicted past this size.

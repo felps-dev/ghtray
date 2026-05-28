@@ -1,6 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use crate::models::Bucket;
@@ -14,10 +14,10 @@ pub struct AppConfig {
     pub merged_window_days: i64,
     /// Blocked repos (full "owner/name") — empty means show all
     pub blocked_repos: HashSet<String>,
-    /// Whether notifications are enabled
+    /// Whether notifications are enabled (master switch)
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
-    /// Whether to play sound with notifications
+    /// Whether to play sound with notifications (master switch)
     #[serde(default = "default_true")]
     pub notification_sound: bool,
     /// Bucket IDs to hide from the tray menu (empty = show all)
@@ -35,6 +35,20 @@ pub struct AppConfig {
     /// Custom path to gh CLI binary (empty = auto-detect)
     #[serde(default)]
     pub gh_cli_path: String,
+    /// Path or system sound name for notifications. Empty = default Glass.aiff.
+    /// A bare name (e.g. "Pop") resolves to /System/Library/Sounds/{name}.aiff.
+    #[serde(default)]
+    pub notification_sound_path: String,
+    /// Bucket IDs that fire desktop notifications. Subset of notifiable buckets.
+    #[serde(default = "default_notify_buckets")]
+    pub notify_buckets: HashSet<String>,
+    /// Bucket IDs that play sound when their notification fires.
+    #[serde(default = "default_notify_buckets")]
+    pub sound_buckets: HashSet<String>,
+    /// Per-bucket sort key. Missing keys default to "updated_desc".
+    /// Values: updated_desc/asc, notified_desc/asc, created_desc/asc, number_desc/asc.
+    #[serde(default)]
+    pub bucket_sort: HashMap<String, String>,
 }
 
 fn default_true() -> bool {
@@ -47,6 +61,20 @@ fn default_badge_buckets() -> HashSet<String> {
         "returned_to_you".to_string(),
     ])
 }
+
+/// Default set of buckets that fire notifications — matches the set of
+/// buckets where `Bucket::notification_title()` returns `Some`.
+fn default_notify_buckets() -> HashSet<String> {
+    HashSet::from([
+        "needs_your_review".to_string(),
+        "returned_to_you".to_string(),
+        "approved".to_string(),
+        "recently_merged".to_string(),
+    ])
+}
+
+/// Default sort key used when a bucket has no explicit override.
+pub const DEFAULT_SORT_KEY: &str = "updated_desc";
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -61,6 +89,10 @@ impl Default for AppConfig {
             bucket_order: Vec::new(),
             max_pr_age_days: 0,
             gh_cli_path: String::new(),
+            notification_sound_path: String::new(),
+            notify_buckets: default_notify_buckets(),
+            sound_buckets: default_notify_buckets(),
+            bucket_sort: HashMap::new(),
         }
     }
 }
@@ -103,6 +135,26 @@ impl AppConfig {
 
     pub fn counts_for_badge(&self, bucket_id: &str) -> bool {
         self.badge_buckets.contains(bucket_id)
+    }
+
+    /// Should a notification fire when a PR enters this bucket?
+    /// Master `notifications_enabled` toggle wins.
+    pub fn notify_for_bucket(&self, bucket_id: &str) -> bool {
+        self.notifications_enabled && self.notify_buckets.contains(bucket_id)
+    }
+
+    /// Should a sound play when a notification fires for this bucket?
+    /// Master `notification_sound` toggle wins.
+    pub fn sound_for_bucket(&self, bucket_id: &str) -> bool {
+        self.notification_sound && self.sound_buckets.contains(bucket_id)
+    }
+
+    /// Resolve the sort key for a bucket, falling back to the default.
+    pub fn sort_for_bucket(&self, bucket_id: &str) -> &str {
+        self.bucket_sort
+            .get(bucket_id)
+            .map(String::as_str)
+            .unwrap_or(DEFAULT_SORT_KEY)
     }
 
     /// Returns the bucket display order. Uses custom order if set, otherwise default.

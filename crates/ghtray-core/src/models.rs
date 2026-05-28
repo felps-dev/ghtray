@@ -189,6 +189,11 @@ pub struct CategorizedPr {
     pub last_commit_sha: Option<String>,
     pub last_commit_date: Option<DateTime<Utc>>,
     pub ci_status: Option<String>,
+    /// When the most recent desktop notification fired for this PR.
+    /// Populated by enriching against the persistent notification ledger
+    /// after each fetch. Drives the "🔔 5m" suffix in the tray menu.
+    #[serde(default)]
+    pub last_notified_at: Option<DateTime<Utc>>,
 }
 
 /// Format a datetime as a compact relative time string (e.g., "2m", "4h", "3d", "2mo", "1y")
@@ -222,6 +227,7 @@ pub fn relative_time(dt: DateTime<Utc>) -> String {
 #[derive(Debug, Clone)]
 pub struct PendingNotification {
     pub pr_id: String,
+    pub bucket: Bucket,
     pub title: &'static str,
     pub body: String,
 }
