@@ -650,8 +650,8 @@ pub fn sort_prs(prs: &mut [&CategorizedPr], key: &str) {
         }
         "created_desc" => prs.sort_by(|a, b| cmp_opt_date(a.created_at, b.created_at, true)),
         "created_asc" => prs.sort_by(|a, b| cmp_opt_date(a.created_at, b.created_at, false)),
-        "number_desc" => prs.sort_by(|a, b| b.number.cmp(&a.number)),
-        "number_asc" => prs.sort_by(|a, b| a.number.cmp(&b.number)),
+        "number_desc" => prs.sort_by_key(|p| std::cmp::Reverse(p.number)),
+        "number_asc" => prs.sort_by_key(|p| p.number),
         // "updated_desc" or anything unknown
         _ => prs.sort_by(|a, b| {
             cmp_opt_date(
