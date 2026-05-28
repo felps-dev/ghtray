@@ -497,6 +497,13 @@ fn send_notifications(
     let now = chrono::Utc::now();
 
     for note in pending {
+        // Per-repo guard: filter_prs already excludes blocked repos before
+        // pending_notifications sees them, but this explicit check ensures
+        // a notification will never fire for a repo the user has unchecked
+        // — even if filtering ever regresses.
+        if !config.is_repo_allowed(&note.repo) {
+            continue;
+        }
         // Per-bucket gate: master toggle already passed above, but a bucket
         // can be individually muted in settings.
         if !config.notify_for_bucket(note.bucket.id()) {

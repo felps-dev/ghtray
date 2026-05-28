@@ -710,6 +710,7 @@ pub fn pending_notifications(
         out.push(PendingNotification {
             pr_id: pr.id.clone(),
             bucket: pr.bucket,
+            repo: pr.repo.clone(),
             title,
             body: format!("#{} {} ({})", pr.number, pr.title, short_repo(&pr.repo)),
         });

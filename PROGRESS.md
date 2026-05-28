@@ -1,10 +1,10 @@
 # GH Tray — Progress
 
 ## Current Phase
-v0.5.0 — In progress (notification fine-tuning + settings redesign)
+v0.5.1 — Defensive guard for blocked-repo notifications
 
 ## Next Step
-Test on real account: custom sound preview, per-event triggers, per-bucket sort, "🔔" indicator. Then bump version + release.
+Test on real account that notifications/sounds stay silent for unchecked repos.
 
 ## Phase 1: Data Exploration — COMPLETE
 - [x] All tasks complete. See `docs/phase1-data-exploration.md`
@@ -86,6 +86,9 @@ Test on real account: custom sound preview, per-event triggers, per-bucket sort,
 - [x] Tray tooltip shows actual error text (not generic "Error (check settings)")
 - [x] Bucket section headers are clickable → opens every PR in that bucket in the browser
 - [x] Settings Cancel button now uses backend `hide_settings` command (JS `getCurrentWindow().hide()` was failing silently)
+
+## v0.5.1 — Blocked-repo notification guard
+- [x] Belt-and-suspenders check in `send_notifications`: explicit `config.is_repo_allowed(&note.repo)` guard ensures a desktop notification (and its sound) never fires for a repo the user has unchecked in settings, even if upstream filtering ever regresses. `PendingNotification` gained a `repo` field to support the check without a PR lookup.
 
 ## v0.5.0 — Notifications & Settings UX
 - [x] Custom notification sound — pick any macOS system sound (Glass, Pop, Tink, Bottle, Frog, Funk, Hero, Morse, Ping, Purr, Sosumi, Submarine) or a custom file path. `Preview` button plays via `afplay`. New `preview_sound` Tauri command, `notification_sound_path` in config.

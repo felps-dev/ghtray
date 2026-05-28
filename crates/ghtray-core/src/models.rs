@@ -228,6 +228,9 @@ pub fn relative_time(dt: DateTime<Utc>) -> String {
 pub struct PendingNotification {
     pub pr_id: String,
     pub bucket: Bucket,
+    /// Full "owner/name" — used by `send_notifications` to guard against
+    /// firing for blocked repos even if upstream filtering missed them.
+    pub repo: String,
     pub title: &'static str,
     pub body: String,
 }
