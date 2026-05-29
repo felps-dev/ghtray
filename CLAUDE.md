@@ -26,7 +26,7 @@
 - `latestReviews` over `reviews` (deduplicated per reviewer)
 - Dedup PRs by node ID across search results
 - `@me` in search queries (no need to pass username)
-- Repo filter uses **block-list** (`blocked_repos`) so new repos show by default
+- Repo filter uses **block-list** (`blocked_repos`) so new repos show by default; **org-level** block (`blocked_orgs`) mutes an entire owner incl. future repos
 - `set_activation_policy(Accessory)` hides dock icon on macOS
 - Settings window close is intercepted → hides instead of killing app
 - `tauri-plugin-single-instance` prevents concurrent instances
@@ -54,12 +54,17 @@ target/debug/ghtray            # user runs manually to test
 |---|---|---|---|
 | `poll_interval_secs` | u64 | 120 | Polling interval (min 30) |
 | `merged_window_days` | i64 | 7 | How far back to show merged PRs |
-| `blocked_repos` | HashSet<String> | empty | Repos to hide (block-list) |
-| `notifications_enabled` | bool | true | Desktop notifications |
-| `notification_sound` | bool | true | Play sound with notifications |
+| `blocked_repos` | HashSet<String> | empty | Individual repos to hide (block-list) |
+| `blocked_orgs` | HashSet<String> | empty | Whole orgs to hide — mutes current AND future repos under the owner |
+| `notifications_enabled` | bool | true | Desktop notifications (master switch) |
+| `notification_sound` | bool | true | Play sound with notifications (master switch) |
+| `notification_sound_path` | String | empty | System sound name (e.g. "Pop") or file path (empty = Glass.aiff) |
 | `hidden_buckets` | HashSet<String> | empty | Sections to hide from tray |
 | `badge_buckets` | HashSet<String> | needs_your_review, returned_to_you | Sections that count in badge |
+| `notify_buckets` | HashSet<String> | the 4 notifiable buckets | Buckets that fire desktop notifications |
+| `sound_buckets` | HashSet<String> | the 4 notifiable buckets | Buckets that play a sound when notified |
 | `bucket_order` | Vec<String> | empty (uses default) | Custom section display order |
+| `bucket_sort` | HashMap<String,String> | empty (updated_desc) | Per-bucket sort key |
 | `max_pr_age_days` | u64 | 0 | Hide PRs older than X days (0 = no limit) |
 | `gh_cli_path` | String | empty | Custom path to gh binary (empty = auto-detect) |
 

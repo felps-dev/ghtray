@@ -888,6 +888,10 @@
     let orgs = [];
     let buckets = [];
     let ghStatus = { ok: true, message: '' };
+    // Full block sets as loaded — used on save to preserve blocks for
+    // orgs/repos that have no current PRs and thus aren't in the tree.
+    let loadedBlockedRepos = [];
+    let loadedBlockedOrgs = [];
 
     // ── Tabs ──────────────────────────────────────────────
 
@@ -917,6 +921,8 @@
       orgs = data.orgs;
       buckets = data.buckets;
       ghStatus = data.gh_status;
+      loadedBlockedRepos = data.blocked_repos || [];
+      loadedBlockedOrgs = data.blocked_orgs || [];
 
       hydrateSoundPicker(data.notification_sound_path);
 
@@ -1206,12 +1212,29 @@
     // ── Save / Cancel ─────────────────────────────────────
 
     async function save() {
-      const blocked = [];
+      // Org fully unchecked → block the whole org (future repos included).
+      // Org partially checked → block only the individual unchecked repos.
+      // Preserve blocks for orgs/repos not present in the current tree
+      // (they have no PRs right now, so the user can't see them to re-enable).
+      const visibleOrgs = new Set(orgs.map(o => o.name));
+      const visibleRepos = new Set(orgs.flatMap(o => o.repos.map(r => r.full_name)));
+
+      const blockedOrgs = new Set(loadedBlockedOrgs.filter(o => !visibleOrgs.has(o)));
+      const blockedRepos = new Set(loadedBlockedRepos.filter(r => !visibleRepos.has(r)));
+
       for (const org of orgs) {
-        for (const repo of org.repos) {
-          if (!repo.enabled) blocked.push(repo.full_name);
+        const allUnchecked = org.repos.every(r => !r.enabled);
+        if (allUnchecked) {
+          blockedOrgs.add(org.name);
+        } else {
+          for (const repo of org.repos) {
+            if (!repo.enabled) blockedRepos.add(repo.full_name);
+          }
         }
       }
+
+      const blocked = [...blockedRepos];
+      const blockedOrgsList = [...blockedOrgs];
 
       const hiddenBuckets = buckets.filter(b => !b.visible).map(b => b.id);
       const badgeBuckets  = buckets.filter(b => b.badge).map(b => b.id);
@@ -1231,6 +1254,7 @@
             merged_window_days: parseInt(document.getElementById('merged-window').value) || 7,
             max_pr_age_days: parseInt(document.getElementById('max-pr-age').value) || 0,
             blocked_repos: blocked,
+            blocked_orgs: blockedOrgsList,
             notifications_enabled: document.getElementById('notifications-enabled').checked,
             notification_sound: document.getElementById('notification-sound').checked,
             notification_sound_path: currentSoundSpec(),

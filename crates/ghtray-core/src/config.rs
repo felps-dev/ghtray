@@ -14,6 +14,11 @@ pub struct AppConfig {
     pub merged_window_days: i64,
     /// Blocked repos (full "owner/name") — empty means show all
     pub blocked_repos: HashSet<String>,
+    /// Blocked organizations (the "owner" part of "owner/name"). Every repo
+    /// under a blocked org is hidden, including ones not yet seen — so muting
+    /// an org also mutes future repos under it. Empty means none blocked.
+    #[serde(default)]
+    pub blocked_orgs: HashSet<String>,
     /// Whether notifications are enabled (master switch)
     #[serde(default = "default_true")]
     pub notifications_enabled: bool,
@@ -82,6 +87,7 @@ impl Default for AppConfig {
             poll_interval_secs: 120,
             merged_window_days: 7,
             blocked_repos: HashSet::new(),
+            blocked_orgs: HashSet::new(),
             notifications_enabled: true,
             notification_sound: true,
             hidden_buckets: HashSet::new(),
@@ -122,7 +128,15 @@ impl AppConfig {
     }
 
     pub fn is_repo_allowed(&self, repo: &str) -> bool {
-        !self.blocked_repos.contains(repo)
+        // An org-level block hides every repo under that owner, including
+        // repos that weren't visible when the org was muted (the block-list
+        // is a snapshot; the org-list is not).
+        let owner = repo.split('/').next().unwrap_or(repo);
+        !self.blocked_orgs.contains(owner) && !self.blocked_repos.contains(repo)
+    }
+
+    pub fn is_org_blocked(&self, owner: &str) -> bool {
+        self.blocked_orgs.contains(owner)
     }
 
     pub fn poll_interval_secs_clamped(&self) -> u64 {

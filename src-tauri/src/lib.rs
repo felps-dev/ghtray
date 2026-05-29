@@ -79,6 +79,9 @@ struct RepoEntry {
 #[derive(Debug, Clone, Serialize)]
 struct OrgEntry {
     name: String,
+    /// False when the whole org is blocked (every repo under it muted,
+    /// including future ones). Distinct from "all known repos unchecked".
+    blocked: bool,
     repos: Vec<RepoEntry>,
 }
 
@@ -114,6 +117,11 @@ struct SettingsData {
     autostart: bool,
     buckets: Vec<BucketEntry>,
     orgs: Vec<OrgEntry>,
+    /// Full current block sets — the UI merges these on save so it can
+    /// preserve blocks for orgs/repos that have no PRs right now and thus
+    /// don't appear in the tree.
+    blocked_repos: Vec<String>,
+    blocked_orgs: Vec<String>,
     gh_status: GhStatusInfo,
     gh_cli_path: String,
     detected_gh_path: String,
@@ -146,8 +154,10 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
                     }
                 })
                 .collect();
+            let blocked = config.is_org_blocked(&owner);
             OrgEntry {
                 name: owner,
+                blocked,
                 repos: repo_entries,
             }
         })
@@ -205,6 +215,8 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
         autostart,
         buckets,
         orgs,
+        blocked_repos: config.blocked_repos.iter().cloned().collect(),
+        blocked_orgs: config.blocked_orgs.iter().cloned().collect(),
         gh_status,
         gh_cli_path: config.gh_cli_path.clone(),
         detected_gh_path: github::auto_detected_gh_path(),
@@ -263,6 +275,7 @@ struct SaveSettingsPayload {
     merged_window_days: i64,
     max_pr_age_days: u64,
     blocked_repos: Vec<String>,
+    blocked_orgs: Vec<String>,
     notifications_enabled: bool,
     notification_sound: bool,
     notification_sound_path: String,
@@ -287,6 +300,7 @@ fn save_settings(
     config.merged_window_days = payload.merged_window_days.max(1);
     config.max_pr_age_days = payload.max_pr_age_days;
     config.blocked_repos = payload.blocked_repos.into_iter().collect();
+    config.blocked_orgs = payload.blocked_orgs.into_iter().collect();
     config.notifications_enabled = payload.notifications_enabled;
     config.notification_sound = payload.notification_sound;
     config.notification_sound_path = payload.notification_sound_path;

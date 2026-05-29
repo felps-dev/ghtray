@@ -27,7 +27,7 @@ Think [Graphite Bar](https://graphite.dev), but open-source and powered by the G
 - **Last-notified indicator** — each PR row in the tray shows when you were last pinged about it (e.g. `🔔 5m`), so you know whether something has been sitting unread.
 - **Per-bucket sort order** — sort each section independently by Updated, Last Notified, Created, or PR number, ascending or descending.
 - **Configurable polling** — set your own interval (default: 120s, minimum 30s).
-- **Repo filtering** — block-list repos you don't care about via a settings UI with org/repo tree.
+- **Repo & org filtering** — block-list repos (or entire organizations) you don't care about via a settings UI with an org/repo tree. Muting a whole org also mutes any future repos under it.
 - **Bucket visibility, order, and badge contribution** — show/hide sections, drag to reorder, and pick which sections count toward the tray badge.
 - **Launch at login** — starts silently in the background.
 - **Lightweight** — small Rust binary, minimal resource usage.
@@ -124,7 +124,7 @@ Access settings from the tray menu. The window is organized into tabs:
 - **Polling** — interval (default: 120s, min 30s), merged PR window, max PR age cutoff
 - **Notifications** — master toggles, sound picker with Preview, and a per-event matrix letting you choose which transitions ring and which play a sound
 - **Sections** — visibility, drag-to-reorder, per-bucket sort key, and which sections count in the tray badge
-- **Repositories** — org/repo block-list (new repos surface automatically)
+- **Repositories** — org/repo block-list. Unchecking a single repo hides just that repo; unchecking a whole org mutes every repo under it, including ones that appear later.
 - **About** — version, log file, source link
 
 ---

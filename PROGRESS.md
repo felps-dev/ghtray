@@ -1,10 +1,10 @@
 # GH Tray — Progress
 
 ## Current Phase
-v0.5.1 — Defensive guard for blocked-repo notifications
+v0.5.2 — Organization-level repo blocking
 
 ## Next Step
-Test on real account that notifications/sounds stay silent for unchecked repos.
+Test that muting an org silences its current AND future repos (tray + notifications).
 
 ## Phase 1: Data Exploration — COMPLETE
 - [x] All tasks complete. See `docs/phase1-data-exploration.md`
@@ -86,6 +86,11 @@ Test on real account that notifications/sounds stay silent for unchecked repos.
 - [x] Tray tooltip shows actual error text (not generic "Error (check settings)")
 - [x] Bucket section headers are clickable → opens every PR in that bucket in the browser
 - [x] Settings Cancel button now uses backend `hide_settings` command (JS `getCurrentWindow().hide()` was failing silently)
+
+## v0.5.2 — Organization-level blocking
+- [x] New `blocked_orgs: HashSet<String>` in `AppConfig`. `is_repo_allowed` now blocks a repo if its owner is in `blocked_orgs` OR the full name is in `blocked_repos`. This fixes the gap where unchecking an org only muted the repos visible at that moment — a new/unseen repo under the org (e.g. a `recently_merged` PR from a repo with no open PRs) still notified. Org-level blocking is future-proof: every repo under a muted org is hidden, including ones that appear later.
+- [x] Settings round-trips org state: `get_settings` returns the full `blocked_repos` + `blocked_orgs` sets plus per-org `blocked`. The UI computes — on save — "org fully unchecked → block the org; partially → block the unchecked repos", and merges back any block for an org/repo with no current PRs (not in the tree) so saving settings never silently un-mutes an invisible org.
+- [x] `is_org_blocked(owner)` helper; `OrgEntry.blocked` exposed to the UI.
 
 ## v0.5.1 — Blocked-repo notification guard
 - [x] Belt-and-suspenders check in `send_notifications`: explicit `config.is_repo_allowed(&note.repo)` guard ensures a desktop notification (and its sound) never fires for a repo the user has unchecked in settings, even if upstream filtering ever regresses. `PendingNotification` gained a `repo` field to support the check without a PR lookup.
