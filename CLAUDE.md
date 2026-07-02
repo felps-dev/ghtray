@@ -65,6 +65,7 @@ target/debug/ghtray            # user runs manually to test
 | `sound_buckets` | HashSet<String> | the 4 notifiable buckets | Buckets that play a sound when notified |
 | `bucket_order` | Vec<String> | empty (uses default) | Custom section display order |
 | `bucket_sort` | HashMap<String,String> | empty (updated_desc) | Per-bucket sort key |
+| `bucket_hidden_statuses` | HashMap<String,HashSet<String>> | empty (show all) | Per-bucket hidden PR statuses ("open"/"draft") — filters tray, badge, and notifications |
 | `max_pr_age_days` | u64 | 0 | Hide PRs older than X days (0 = no limit) |
 | `gh_cli_path` | String | empty | Custom path to gh binary (empty = auto-detect) |
 

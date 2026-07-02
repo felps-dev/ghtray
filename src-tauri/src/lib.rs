@@ -98,6 +98,11 @@ struct BucketEntry {
     notifiable: bool,
     notify: bool,
     sound: bool,
+    /// True when this bucket can contain both open and draft PRs — i.e. the
+    /// per-status filter is meaningful (see `Bucket::status_filterable`).
+    status_filterable: bool,
+    show_open: bool,
+    show_draft: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -177,6 +182,9 @@ fn get_settings(app: AppHandle, state: tauri::State<'_, GhTrayState>) -> Setting
                 notifiable: b.notification_title().is_some(),
                 notify: config.notify_buckets.contains(id),
                 sound: config.sound_buckets.contains(id),
+                status_filterable: b.status_filterable(),
+                show_open: config.is_status_visible(id, "open"),
+                show_draft: config.is_status_visible(id, "draft"),
             }
         })
         .collect();
@@ -285,6 +293,7 @@ struct SaveSettingsPayload {
     notify_buckets: Vec<String>,
     sound_buckets: Vec<String>,
     bucket_sort: HashMap<String, String>,
+    bucket_hidden_statuses: HashMap<String, Vec<String>>,
     autostart: bool,
     gh_cli_path: String,
 }
@@ -310,6 +319,12 @@ fn save_settings(
     config.notify_buckets = payload.notify_buckets.into_iter().collect();
     config.sound_buckets = payload.sound_buckets.into_iter().collect();
     config.bucket_sort = payload.bucket_sort;
+    config.bucket_hidden_statuses = payload
+        .bucket_hidden_statuses
+        .into_iter()
+        .filter(|(_, statuses)| !statuses.is_empty())
+        .map(|(bucket, statuses)| (bucket, statuses.into_iter().collect()))
+        .collect();
     config.gh_cli_path = payload.gh_cli_path;
 
     // Apply gh CLI path override
@@ -416,9 +431,16 @@ fn rebuild_tray_menu(
                 .last_notified_at
                 .map(|t| format!(" · 🔔 {}", models::relative_time(t)))
                 .unwrap_or_default();
+            // Mark drafts that surface outside the Drafts bucket (e.g. a
+            // draft with a review request) so the state is visible at a glance.
+            let draft_marker = if pr.is_draft && pr.bucket != Bucket::Drafts {
+                "✎ "
+            } else {
+                ""
+            };
 
             let label = format!(
-                "  #{} {}{} ({}){}{}",
+                "  #{} {draft_marker}{}{} ({}){}{}",
                 pr.number,
                 truncate(&pr.title, 36),
                 ci,
@@ -597,10 +619,11 @@ fn demo_prs() -> Vec<CategorizedPr> {
         last_commit_sha: Some(format!("abc{id}")),
         last_commit_date: Some(now - Duration::hours(hours_ago / 2)),
         ci_status: ci.map(String::from),
+        is_draft: bucket == Bucket::Drafts,
         last_notified_at: Some(now - Duration::minutes(hours_ago * 15)),
     };
 
-    vec![
+    let mut prs = vec![
         // Needs Your Review
         pr(
             "d1",
@@ -748,7 +771,15 @@ fn demo_prs() -> Vec<CategorizedPr> {
             Some("SUCCESS"),
             50,
         ),
-    ]
+    ];
+
+    // A draft with a review request — the Slack-reported scenario the
+    // per-bucket status filter exists for.
+    if let Some(p) = prs.iter_mut().find(|p| p.id == "d3") {
+        p.is_draft = true;
+    }
+
+    prs
 }
 
 // ── Loading indicator ────────────────────────────────────────────────────────

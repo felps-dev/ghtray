@@ -1,10 +1,19 @@
 # GH Tray — Progress
 
 ## Current Phase
-v0.5.2 — Organization-level repo blocking
+v0.6.0 — Per-section PR status filter (Open / Draft)
 
 ## Next Step
-Test that muting an org silences its current AND future repos (tray + notifications).
+User tests the status pills in Settings → Sections (e.g. hide Draft in "Needs Your Review": draft with review request should vanish from tray, badge, and notifications; should reappear + notify when marked ready). Then release v0.6.0.
+
+## v0.6.0 — Per-section PR status filter
+Slack request: a draft PR with a review request lands in "Needs Your Review" — user wants to choose which PR statuses each section displays.
+- [x] `CategorizedPr.is_draft` (serde default false) + `status_id()` → `"draft"` / `"open"`. Populated from the GraphQL `isDraft` field; merged PRs are always `open`.
+- [x] `bucket_hidden_statuses: HashMap<String, HashSet<String>>` in `AppConfig` — block-list semantics (missing bucket = show all), consistent with `blocked_repos`. `is_status_visible(bucket_id, status)` helper.
+- [x] Filter applied in `github::filter_prs` — so tray, badge, AND notifications all respect it (notifications derive from the filtered list). A draft hidden from "Needs Your Review" notifies when it flips to ready, since it only then enters the ledger.
+- [x] Tray rows show a `✎ ` marker before the title for draft PRs outside the Drafts bucket.
+- [x] Settings → Sections: Open/Draft pill toggles, only on the sections where both statuses can actually land (`Bucket::status_filterable` → Needs Your Review + Waiting for Author). Authored drafts always route to the Drafts bucket, so Approved / Returned to You / Waiting for Reviewers are open-only; Drafts is draft-only; Recently Merged is merged-only. UI persists only hidden statuses (both pills on = no config entry).
+- [x] First unit tests in `ghtray-core` (`github::tests`) covering the status filter.
 
 ## Phase 1: Data Exploration — COMPLETE
 - [x] All tasks complete. See `docs/phase1-data-exploration.md`

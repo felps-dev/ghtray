@@ -135,6 +135,17 @@ impl Bucket {
         }
     }
 
+    /// Buckets where both open and draft PRs can actually land, making the
+    /// per-status filter meaningful. Authored drafts always route to the
+    /// Drafts bucket (see `categorize_authored`), so Approved / Returned to
+    /// You / Waiting for Reviewers are open-only, Drafts is draft-only, and
+    /// Recently Merged is merged-only. Only searches over *other people's*
+    /// PRs can mix: a review request on a draft (Needs Your Review) or a
+    /// reviewed PR later converted to draft (Waiting for Author).
+    pub fn status_filterable(&self) -> bool {
+        matches!(self, Bucket::NeedsYourReview | Bucket::WaitingForAuthor)
+    }
+
     pub fn id(&self) -> &'static str {
         match self {
             Bucket::NeedsYourReview => "needs_your_review",
@@ -189,11 +200,23 @@ pub struct CategorizedPr {
     pub last_commit_sha: Option<String>,
     pub last_commit_date: Option<DateTime<Utc>>,
     pub ci_status: Option<String>,
+    /// Whether the PR is a draft. Drives the per-bucket status filter and
+    /// the "✎" marker on tray rows outside the Drafts bucket.
+    #[serde(default)]
+    pub is_draft: bool,
     /// When the most recent desktop notification fired for this PR.
     /// Populated by enriching against the persistent notification ledger
     /// after each fetch. Drives the "🔔 5m" suffix in the tray menu.
     #[serde(default)]
     pub last_notified_at: Option<DateTime<Utc>>,
+}
+
+impl CategorizedPr {
+    /// Status ID used by the per-bucket status filter
+    /// (`AppConfig::bucket_hidden_statuses`).
+    pub fn status_id(&self) -> &'static str {
+        if self.is_draft { "draft" } else { "open" }
+    }
 }
 
 /// Format a datetime as a compact relative time string (e.g., "2m", "4h", "3d", "2mo", "1y")

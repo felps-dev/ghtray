@@ -275,6 +275,7 @@ fn make_pr(pr: &PullRequest, bucket: Bucket) -> CategorizedPr {
         last_commit_sha: sha,
         last_commit_date: date,
         ci_status: ci,
+        is_draft: pr.is_draft.unwrap_or(false),
         last_notified_at: None,
     }
 }
@@ -344,6 +345,7 @@ pub fn categorize_all(data: &GqlData, viewer: &str) -> Vec<CategorizedPr> {
                 last_commit_sha: None,
                 last_commit_date: pr.merged_at,
                 ci_status: None,
+                is_draft: false,
                 last_notified_at: None,
             });
         }
@@ -363,6 +365,7 @@ pub fn filter_prs(prs: Vec<CategorizedPr>, config: &AppConfig) -> Vec<Categorize
 
     prs.into_iter()
         .filter(|pr| config.is_repo_allowed(&pr.repo))
+        .filter(|pr| config.is_status_visible(pr.bucket.id(), pr.status_id()))
         .filter(|pr| match max_age_cutoff {
             Some(cutoff) => pr
                 .created_at
@@ -730,4 +733,72 @@ pub fn pending_notifications(
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pr(id: &str, bucket: Bucket, is_draft: bool) -> CategorizedPr {
+        CategorizedPr {
+            id: id.to_string(),
+            number: 1,
+            title: "test".to_string(),
+            url: String::new(),
+            repo: "acme/repo".to_string(),
+            author: String::new(),
+            bucket,
+            created_at: None,
+            updated_at: None,
+            last_commit_sha: None,
+            last_commit_date: None,
+            ci_status: None,
+            is_draft,
+            last_notified_at: None,
+        }
+    }
+
+    #[test]
+    fn status_filter_defaults_to_show_all() {
+        let config = AppConfig::default();
+        let prs = vec![
+            pr("a", Bucket::NeedsYourReview, false),
+            pr("b", Bucket::NeedsYourReview, true),
+        ];
+        assert_eq!(filter_prs(prs, &config).len(), 2);
+    }
+
+    #[test]
+    fn status_filter_hides_drafts_per_bucket() {
+        let mut config = AppConfig::default();
+        config.bucket_hidden_statuses.insert(
+            "needs_your_review".to_string(),
+            HashSet::from(["draft".to_string()]),
+        );
+        let prs = vec![
+            pr("a", Bucket::NeedsYourReview, false),
+            pr("b", Bucket::NeedsYourReview, true),
+            // Same status, different bucket — must be unaffected.
+            pr("c", Bucket::WaitingForAuthor, true),
+        ];
+        let filtered = filter_prs(prs, &config);
+        let ids: Vec<&str> = filtered.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["a", "c"]);
+    }
+
+    #[test]
+    fn status_filter_hides_open_per_bucket() {
+        let mut config = AppConfig::default();
+        config.bucket_hidden_statuses.insert(
+            "waiting_for_author".to_string(),
+            HashSet::from(["open".to_string()]),
+        );
+        let prs = vec![
+            pr("a", Bucket::WaitingForAuthor, false),
+            pr("b", Bucket::WaitingForAuthor, true),
+        ];
+        let filtered = filter_prs(prs, &config);
+        let ids: Vec<&str> = filtered.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["b"]);
+    }
 }

@@ -54,6 +54,12 @@ pub struct AppConfig {
     /// Values: updated_desc/asc, notified_desc/asc, created_desc/asc, number_desc/asc.
     #[serde(default)]
     pub bucket_sort: HashMap<String, String>,
+    /// Per-bucket hidden PR statuses ("open" / "draft"). A PR whose status is
+    /// in its bucket's set is hidden from the tray, the badge, and
+    /// notifications. Missing bucket = show all statuses (block-list, so new
+    /// statuses surface by default).
+    #[serde(default)]
+    pub bucket_hidden_statuses: HashMap<String, HashSet<String>>,
 }
 
 fn default_true() -> bool {
@@ -99,6 +105,7 @@ impl Default for AppConfig {
             notify_buckets: default_notify_buckets(),
             sound_buckets: default_notify_buckets(),
             bucket_sort: HashMap::new(),
+            bucket_hidden_statuses: HashMap::new(),
         }
     }
 }
@@ -161,6 +168,14 @@ impl AppConfig {
     /// Master `notification_sound` toggle wins.
     pub fn sound_for_bucket(&self, bucket_id: &str) -> bool {
         self.notification_sound && self.sound_buckets.contains(bucket_id)
+    }
+
+    /// Is a PR status ("open" / "draft") visible within a bucket?
+    /// Missing bucket entry means all statuses show.
+    pub fn is_status_visible(&self, bucket_id: &str, status: &str) -> bool {
+        self.bucket_hidden_statuses
+            .get(bucket_id)
+            .is_none_or(|hidden| !hidden.contains(status))
     }
 
     /// Resolve the sort key for a bucket, falling back to the default.
