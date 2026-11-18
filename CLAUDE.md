@@ -22,7 +22,7 @@
 - Config: `~/Library/Application Support/ghtray/ghtray-config.json`
 
 ## Key Decisions
-- Single GraphQL query with 4 aliased searches (5 rate limit points)
+- Single GraphQL query with 5 aliased searches (a few rate limit points)
 - `latestReviews` over `reviews` (deduplicated per reviewer)
 - Dedup PRs by node ID across search results
 - `@me` in search queries (no need to pass username)
@@ -60,9 +60,9 @@ target/debug/ghtray            # user runs manually to test
 | `notification_sound` | bool | true | Play sound with notifications (master switch) |
 | `notification_sound_path` | String | empty | System sound name (e.g. "Pop") or file path (empty = Glass.aiff) |
 | `hidden_buckets` | HashSet<String> | empty | Sections to hide from tray |
-| `badge_buckets` | HashSet<String> | needs_your_review, returned_to_you | Sections that count in badge |
-| `notify_buckets` | HashSet<String> | the 4 notifiable buckets | Buckets that fire desktop notifications |
-| `sound_buckets` | HashSet<String> | the 4 notifiable buckets | Buckets that play a sound when notified |
+| `badge_buckets` | HashSet<String> | needs_your_review, assigned_to_you, returned_to_you | Sections that count in badge |
+| `notify_buckets` | HashSet<String> | the 5 notifiable buckets | Buckets that fire desktop notifications |
+| `sound_buckets` | HashSet<String> | the 5 notifiable buckets | Buckets that play a sound when notified |
 | `bucket_order` | Vec<String> | empty (uses default) | Custom section display order |
 | `bucket_sort` | HashMap<String,String> | empty (updated_desc) | Per-bucket sort key |
 | `bucket_hidden_statuses` | HashMap<String,HashSet<String>> | empty (show all) | Per-bucket hidden PR statuses ("open"/"draft") — filters tray, badge, and notifications |

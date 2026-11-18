@@ -14,6 +14,7 @@ Think [Graphite Bar](https://graphite.dev), but open-source and powered by the G
 - **Lives in your menu bar.** No dock icon. No main window. Just a tray icon with a badge count.
 - **PR lifecycle awareness.** PRs are categorized into smart buckets:
   - Needs Your Review
+  - Assigned to You (PRs someone else opened and assigned to you, e.g. by a bot)
   - Changes Requested on Yours
   - Approved, Ready to Merge
   - CI Failing
@@ -148,7 +149,7 @@ ghtray/
 ```
 
 **Key design decisions:**
-- Single GraphQL query with 4 aliased searches (only 5 rate limit points)
+- Single GraphQL query with 5 aliased searches (a few rate limit points)
 - `latestReviews` for deduplicated per-reviewer state
 - Dedup PRs by node ID across search results
 - `@me` in search queries (no username needed)

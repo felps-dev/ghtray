@@ -69,6 +69,7 @@ fn default_true() -> bool {
 fn default_badge_buckets() -> HashSet<String> {
     HashSet::from([
         "needs_your_review".to_string(),
+        "assigned_to_you".to_string(),
         "returned_to_you".to_string(),
     ])
 }
@@ -78,6 +79,7 @@ fn default_badge_buckets() -> HashSet<String> {
 fn default_notify_buckets() -> HashSet<String> {
     HashSet::from([
         "needs_your_review".to_string(),
+        "assigned_to_you".to_string(),
         "returned_to_you".to_string(),
         "approved".to_string(),
         "recently_merged".to_string(),

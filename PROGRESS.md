@@ -4,7 +4,15 @@
 v0.6.0 — Per-section PR status filter (Open / Draft)
 
 ## Next Step
-User tests the status pills in Settings → Sections (e.g. hide Draft in "Needs Your Review": draft with review request should vanish from tray, badge, and notifications; should reappear + notify when marked ready). Then release v0.6.0.
+User tests the "Assigned to You" section: a PR assigned to you (not authored by you, no review request) appears in it and fires one "PR Assigned" notification; pushes to it don't re-notify. Existing configs need the section ticked under Settings → Notifications / Sections.
+
+## Unreleased — "Assigned to You" section
+Request: PRs opened by a bot (e.g. Margot) that assigns you never showed up — only review requests did.
+- [x] 5th aliased search `assignedToMe`: `is:pr is:open assignee:@me -author:@me -review-requested:@me`.
+- [x] `Bucket::AssignedToYou` (id `assigned_to_you`), placed after Needs Your Review. Dedup order: needs review → authored → assigned → reviewed-by-me, so an assigned PR you also reviewed shows as assigned, not Waiting for Author.
+- [x] Notification "PR Assigned" fires once on entering the bucket; `Bucket::renotify_on_new_commit()` is false for it so a bot pushing commits doesn't re-notify.
+- [x] Status-filterable (Open/Draft pills) since others' PRs can be either.
+- [x] Default-on for badge / notify / sound for **new** configs only. Existing configs persist `notify_buckets` / `sound_buckets` / `badge_buckets` explicitly, so existing users must tick it in Settings.
 
 ## v0.6.0 — Per-section PR status filter
 Slack request: a draft PR with a review request lands in "Needs Your Review" — user wants to choose which PR statuses each section displays.

@@ -102,6 +102,10 @@ fn build_query(merged_since: &str) -> String {
     issueCount
     nodes {{ ... on PullRequest {{ {pr_fields} }} }}
   }}
+  assignedToMe: search(query: "is:pr is:open assignee:@me -author:@me -review-requested:@me", type: ISSUE, first: 50) {{
+    issueCount
+    nodes {{ ... on PullRequest {{ {pr_fields} }} }}
+  }}
   recentlyMerged: search(query: "is:pr is:merged author:@me merged:>{merged_since}", type: ISSUE, first: 20) {{
     issueCount
     nodes {{ ... on PullRequest {{
@@ -317,6 +321,15 @@ pub fn categorize_all(data: &GqlData, viewer: &str) -> Vec<CategorizedPr> {
     for pr in &data.authored.nodes {
         if seen_ids.insert(pr.id.clone()) {
             results.push(categorize_authored(pr));
+        }
+    }
+
+    // Before reviewed_by_me: when you're assigned to a PR you also reviewed,
+    // the assignment (you own seeing it through) matters more than waiting
+    // on its author.
+    for pr in &data.assigned_to_me.nodes {
+        if seen_ids.insert(pr.id.clone()) {
+            results.push(make_pr(pr, Bucket::AssignedToYou));
         }
     }
 
@@ -704,9 +717,10 @@ pub fn pending_notifications(
         let Some(title) = pr.bucket.notification_title() else {
             continue;
         };
-        let same = notified
-            .get(&pr.id)
-            .is_some_and(|key| key.bucket == pr.bucket && key.commit_sha == pr.last_commit_sha);
+        let same = notified.get(&pr.id).is_some_and(|key| {
+            key.bucket == pr.bucket
+                && (!pr.bucket.renotify_on_new_commit() || key.commit_sha == pr.last_commit_sha)
+        });
         if same {
             continue;
         }
@@ -800,5 +814,80 @@ mod tests {
         let filtered = filter_prs(prs, &config);
         let ids: Vec<&str> = filtered.iter().map(|p| p.id.as_str()).collect();
         assert_eq!(ids, vec!["b"]);
+    }
+
+    fn gql_pr(id: &str) -> PullRequest {
+        PullRequest {
+            id: id.to_string(),
+            number: 1,
+            title: "test".to_string(),
+            url: String::new(),
+            is_draft: Some(false),
+            created_at: None,
+            updated_at: None,
+            merged_at: None,
+            repository: Repository {
+                name_with_owner: "acme/repo".to_string(),
+            },
+            author: Some(Actor {
+                login: "margot-bot".to_string(),
+            }),
+            review_decision: None,
+            latest_reviews: None,
+            commits: None,
+        }
+    }
+
+    fn search(prs: Vec<PullRequest>) -> SearchResult {
+        SearchResult {
+            _issue_count: prs.len() as u32,
+            nodes: prs,
+        }
+    }
+
+    #[test]
+    fn assigned_prs_land_in_assigned_bucket_and_win_over_reviewed_by_me() {
+        let data = GqlData {
+            needs_review: search(vec![gql_pr("requested")]),
+            authored: search(vec![]),
+            reviewed_by_me: search(vec![gql_pr("both"), gql_pr("reviewed")]),
+            recently_merged: search(vec![]),
+            assigned_to_me: search(vec![gql_pr("requested"), gql_pr("both")]),
+        };
+        let buckets: HashMap<String, Bucket> = categorize_all(&data, "me")
+            .into_iter()
+            .map(|p| (p.id, p.bucket))
+            .collect();
+        assert_eq!(buckets.len(), 3);
+        assert_eq!(buckets["requested"], Bucket::NeedsYourReview);
+        assert_eq!(buckets["both"], Bucket::AssignedToYou);
+        assert_eq!(buckets["reviewed"], Bucket::WaitingForAuthor);
+    }
+
+    fn with_sha(mut p: CategorizedPr, sha: &str) -> CategorizedPr {
+        p.last_commit_sha = Some(sha.to_string());
+        p
+    }
+
+    #[test]
+    fn assigned_notifies_once_regardless_of_new_commits() {
+        let mut ledger = HashMap::new();
+        let first = [with_sha(pr("a", Bucket::AssignedToYou, false), "c1")];
+        let fired = pending_notifications(&first, &mut ledger);
+        assert_eq!(fired.len(), 1);
+        assert_eq!(fired[0].title, "PR Assigned");
+
+        let pushed = [with_sha(pr("a", Bucket::AssignedToYou, false), "c2")];
+        assert!(pending_notifications(&pushed, &mut ledger).is_empty());
+    }
+
+    #[test]
+    fn review_requested_still_renotifies_on_new_commit() {
+        let mut ledger = HashMap::new();
+        let first = [with_sha(pr("a", Bucket::NeedsYourReview, false), "c1")];
+        assert_eq!(pending_notifications(&first, &mut ledger).len(), 1);
+
+        let pushed = [with_sha(pr("a", Bucket::NeedsYourReview, false), "c2")];
+        assert_eq!(pending_notifications(&pushed, &mut ledger).len(), 1);
     }
 }

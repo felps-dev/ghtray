@@ -84,6 +84,7 @@ Every PR the user cares about is categorized into exactly one bucket:
 | Bucket | Description | Detection Logic |
 |---|---|---|
 | **Needs Your Review** | Someone requested your review and you haven't submitted one, OR you reviewed but new commits landed since, OR review was re-requested | Review request exists + (no review submitted, or last commit > last review, or re-request event) |
+| **Assigned to You** | Someone else's PR assigned to you (e.g. opened by a bot that assigns the ticket owner) | Assignee is you + open + not author + no pending review request from you. Notifies once on assignment, not on every new commit |
 | **Waiting for Reviewers** | Your PRs awaiting review from others | Author is you + open + not draft + pending/no reviews |
 | **Returned to You** | Your PRs where changes were requested or comments need response | Author is you + changes_requested review state |
 | **Approved** | Your PRs approved and ready to merge | Author is you + approved review state |
