@@ -728,6 +728,17 @@ fn demo_prs() -> Vec<CategorizedPr> {
             Some("PENDING"),
             4,
         ),
+        // Assigned to You
+        pr(
+            "d15",
+            612,
+            "Fix flaky retry in webhook dispatcher",
+            "acme/backend",
+            "margot-bot",
+            Bucket::AssignedToYou,
+            Some("SUCCESS"),
+            3,
+        ),
         // Waiting for Author
         pr(
             "d11",

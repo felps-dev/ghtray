@@ -17,6 +17,8 @@ pub struct GqlData {
     pub reviewed_by_me: SearchResult,
     #[serde(rename = "recentlyMerged")]
     pub recently_merged: SearchResult,
+    #[serde(rename = "assignedToMe")]
+    pub assigned_to_me: SearchResult,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,6 +104,7 @@ pub struct StatusCheck {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Bucket {
     NeedsYourReview,
+    AssignedToYou,
     WaitingForReviewers,
     ReturnedToYou,
     Approved,
@@ -114,6 +117,7 @@ impl Bucket {
     pub fn label(&self) -> &'static str {
         match self {
             Bucket::NeedsYourReview => "Needs Your Review",
+            Bucket::AssignedToYou => "Assigned to You",
             Bucket::WaitingForReviewers => "Waiting for Reviewers",
             Bucket::ReturnedToYou => "Returned to You",
             Bucket::Approved => "Approved",
@@ -128,6 +132,7 @@ impl Bucket {
     pub fn notification_title(&self) -> Option<&'static str> {
         match self {
             Bucket::NeedsYourReview => Some("Review Requested"),
+            Bucket::AssignedToYou => Some("PR Assigned"),
             Bucket::ReturnedToYou => Some("Changes Requested"),
             Bucket::Approved => Some("PR Approved"),
             Bucket::RecentlyMerged => Some("PR Merged"),
@@ -143,12 +148,23 @@ impl Bucket {
     /// PRs can mix: a review request on a draft (Needs Your Review) or a
     /// reviewed PR later converted to draft (Waiting for Author).
     pub fn status_filterable(&self) -> bool {
-        matches!(self, Bucket::NeedsYourReview | Bucket::WaitingForAuthor)
+        matches!(
+            self,
+            Bucket::NeedsYourReview | Bucket::AssignedToYou | Bucket::WaitingForAuthor
+        )
+    }
+
+    /// Whether a new commit on a PR already in this bucket fires another
+    /// notification. Assignment is a one-time event: re-firing "PR Assigned"
+    /// on every push (e.g. a bot iterating on its own PR) would be noise.
+    pub fn renotify_on_new_commit(&self) -> bool {
+        !matches!(self, Bucket::AssignedToYou)
     }
 
     pub fn id(&self) -> &'static str {
         match self {
             Bucket::NeedsYourReview => "needs_your_review",
+            Bucket::AssignedToYou => "assigned_to_you",
             Bucket::WaitingForReviewers => "waiting_for_reviewers",
             Bucket::ReturnedToYou => "returned_to_you",
             Bucket::Approved => "approved",
@@ -161,6 +177,7 @@ impl Bucket {
     pub fn display_order() -> &'static [Bucket] {
         &[
             Bucket::NeedsYourReview,
+            Bucket::AssignedToYou,
             Bucket::WaitingForReviewers,
             Bucket::ReturnedToYou,
             Bucket::Approved,
@@ -173,6 +190,7 @@ impl Bucket {
     pub fn from_id(id: &str) -> Option<Bucket> {
         match id {
             "needs_your_review" => Some(Bucket::NeedsYourReview),
+            "assigned_to_you" => Some(Bucket::AssignedToYou),
             "waiting_for_reviewers" => Some(Bucket::WaitingForReviewers),
             "returned_to_you" => Some(Bucket::ReturnedToYou),
             "approved" => Some(Bucket::Approved),
